@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#5A3686" />
+  <title>SHE SOCCER · Administración</title>
+  <link rel="icon" href="assets/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <main id="loginView" class="login-view">
+    <section class="login-brand">
+      <img src="assets/logo.svg" class="login-logo" alt="SHE SOCCER" />
+      <div>
+        <p class="eyebrow">ADMIN WEB</p>
+        <h1>SHE SOCCER</h1>
+        <p>Gestión integral de la escuela desde cualquier computadora.</p>
+      </div>
+    </section>
+
+    <section class="login-card">
+      <div class="login-card-head">
+        <p class="eyebrow purple">ACCESO ADMINISTRATIVO</p>
+        <h2>Iniciar sesión</h2>
+        <p>Usá el mismo DNI y contraseña que en la app.</p>
+      </div>
+      <form id="loginForm" class="form-stack">
+        <label>DNI
+          <input id="loginDni" inputmode="numeric" autocomplete="username" placeholder="Ej. 40664253" required />
+        </label>
+        <label>Contraseña
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" required />
+        </label>
+        <button id="loginButton" class="btn primary" type="submit">Ingresar al panel</button>
+      </form>
+      <p id="loginError" class="form-error"></p>
+    </section>
+  </main>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img src="assets/logo.svg" alt="SHE SOCCER" />
+        <div><strong>SHE SOCCER</strong><span>Administración</span></div>
+      </div>
+
+      <nav id="mainNav" class="nav-list">
+        <button data-section="dashboard" class="nav-item active"><span>◫</span> Dashboard</button>
+        <button data-section="players" class="nav-item"><span>👤</span> Jugadores</button>
+        <button data-section="teams" class="nav-item"><span>⚽</span> Equipos</button>
+        <button data-section="matches" class="nav-item"><span>🏟️</span> Partidos</button>
+        <button data-section="attendance" class="nav-item"><span>✓</span> Asistencia</button>
+        <button data-section="citations" class="nav-item"><span>📋</span> Citaciones</button>
+        <button data-section="commitment" class="nav-item"><span>📈</span> Compromiso</button>
+        <button data-section="users" class="nav-item"><span>👥</span> Usuarios</button>
+        <button data-section="leagues" class="nav-item"><span>🏆</span> Ligas</button>
+        <button data-section="news" class="nav-item"><span>📰</span> Novedades</button>
+        <button data-section="sponsors" class="nav-item"><span>🤝</span> Sponsors</button>
+        <button data-section="benefits" class="nav-item"><span>🎟️</span> Beneficios</button>
+        <div class="nav-divider"></div>
+        <button data-section="payments" class="nav-item"><span>💳</span> Pagos</button>
+        <button data-section="concepts" class="nav-item"><span>🧾</span> Conceptos</button>
+        <button data-section="expenses" class="nav-item"><span>💸</span> Gastos</button>
+        <button data-section="balances" class="nav-item"><span>📊</span> Balances</button>
+        <button data-section="files" class="nav-item"><span>📁</span> Archivos</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-mini">
+          <div class="avatar" id="sidebarAvatar">A</div>
+          <div><strong id="sidebarUserName">Administración</strong><span>Sesión activa</span></div>
+        </div>
+        <button id="logoutButton" class="btn ghost full">Cerrar sesión</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p id="sectionEyebrow" class="eyebrow purple">SHE SOCCER</p>
+          <h1 id="sectionTitle">Dashboard</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="lastUpdated" class="muted"></span>
+          <button id="refreshButton" class="btn light">Actualizar</button>
+        </div>
+      </header>
+
+      <div id="content" class="content"></div>
+    </section>
+  </div>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <div><p class="eyebrow purple">SHE SOCCER</p><h3 id="modalTitle">Editar</h3></div>
+        <button id="modalClose" class="icon-btn" aria-label="Cerrar">×</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
