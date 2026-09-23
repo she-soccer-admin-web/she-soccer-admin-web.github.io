@@ -559,8 +559,301 @@ async function renderCitations(){
 async function manageCitation(matchId,teamId){const [{data:members},{data:records},{data:match}]=await Promise.all([supabase.from('team_students').select('student_id,students:student_id(id,first_name,last_name,is_injured)').eq('team_id',teamId).eq('status','activo'),supabase.from('citation_records').select('*').eq('match_id',matchId).eq('team_id',teamId),supabase.from('matches').select('*').eq('id',matchId).single()]);const map=new Map((records||[]).map(r=>[r.student_id,r]));const el=$('#citationManager');el.innerHTML=`<div class="card"><div class="card-head"><div><h3>Citación vs. ${esc(match?.opponent_name||'Rival')}</h3><div class="card-sub">${dateLabel(match?.match_date)}</div></div><button id="saveCitation" class="btn primary">Guardar citación</button></div><div class="roster">${(members||[]).map(m=>{const r=map.get(m.student_id);return `<div class="roster-row" data-student="${m.student_id}"><strong>${esc(m.students?.first_name)} ${esc(m.students?.last_name)}</strong><label class="switch"><input type="checkbox" class="called" ${r?.is_called?'checked':''}> Citado</label><label class="switch"><input type="checkbox" class="injured" ${m.students?.is_injured||r?.is_injured_at_time?'checked':''}> Lesionado</label></div>`}).join('')}</div></div>`;$('#saveCitation').onclick=async()=>{const items=$$('.roster-row',el).map(r=>({student_id:r.dataset.student,is_called:r.querySelector('.called').checked,is_injured_at_time:r.querySelector('.injured').checked}));const {error}=await supabase.rpc('admin_save_citation_records',{p_match_id:matchId,p_team_id:teamId,p_records:items});if(error){toast(error.message,'error');return;}toast('Citación guardada');};}
 
 async function renderCommitment(){content.innerHTML=`<div class="toolbar"><input id="commitSearch" class="grow" placeholder="Buscar jugador"><button id="commitBtn" class="btn primary">Buscar</button></div><div id="commitResults"></div>`;$('#commitBtn').onclick=async()=>{const q=$('#commitSearch').value.trim();if(!q)return;const {data,error}=await supabase.rpc('admin_commitment_search_students',{p_search:q});if(error){toast(error.message,'error');return;}$('#commitResults').innerHTML=`<div class="table-wrap"><table class="data-table"><thead><tr><th>Jugador</th><th>DNI</th><th></th></tr></thead><tbody>${(data||[]).map(r=>`<tr><td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td><td>${esc(r.dni)}</td><td><button class="btn light small commitment-year" data-id="${r.id}">Ver compromiso</button></td></tr>`).join('')}</tbody></table></div>`;$$('.commitment-year').forEach(b=>b.onclick=()=>openCommitmentYear(b.dataset.id));};}
-async function openCommitmentYear(id){const y=new Date().getFullYear();const {data,error}=await supabase.rpc('admin_get_student_commitment_year',{p_student_id:id,p_year:y});if(error){toast(error.message,'error');return;}openModal(`Compromiso ${y}`,`<div class="metrics"><div class="metric"><div class="label">Entrenamientos</div><div class="value">${data?.training_total??data?.attendance_total??0}</div></div><div class="metric"><div class="label">Presentes</div><div class="value">${data?.training_present??data?.attendance_present??0}</div></div><div class="metric"><div class="label">Citaciones</div><div class="value">${data?.citations_total??0}</div></div><div class="metric"><div class="label">Partidos</div><div class="value">${data?.matches_attended??0}</div></div></div><pre style="white-space:pre-wrap;font-size:12px;background:#f7f4f8;padding:12px;border-radius:12px">${esc(JSON.stringify(data,null,2))}</pre>`);}
+async function openCommitmentYear(id){
+  const y=new Date().getFullYear();
+  const {data,error}=await supabase.rpc('admin_get_student_commitment_year',{
+    p_student_id:id,
+    p_year:y
+  });
 
+  if(error){
+    toast(error.message,'error');
+    return;
+  }
+
+  const student=data?.student||{};
+  const studentName=[student.first_name,student.last_name].filter(Boolean).join(' ')||'Jugador';
+  const teams=Array.isArray(student.teams)?student.teams.filter(Boolean):[];
+
+  const pickArray=(...values)=>{
+    for(const value of values){
+      if(Array.isArray(value) && value.length) return value;
+    }
+    return [];
+  };
+
+  const trainings=pickArray(
+    data?.trainings,
+    data?.training,
+    data?.training_calendar,
+    data?.training_sessions,
+    data?.attendance,
+    data?.attendances,
+    data?.attendance_records,
+    data?.sessions
+  );
+
+  const citations=Array.isArray(data?.citations)?data.citations:[];
+  const matches=pickArray(data?.matches,data?.match_records);
+
+  const rawStatus=(row)=>String(
+    row?.attendance_status ??
+    row?.status ??
+    row?.result ??
+    ''
+  ).trim().toLowerCase();
+
+  const trainingStatus=(row)=>{
+    const s=rawStatus(row);
+
+    if(
+      row?.is_injured===true ||
+      row?.injured===true ||
+      s.includes('lesion')
+    ){
+      return {label:'LESIONADA',kind:'injured'};
+    }
+
+    if(
+      row?.present===true ||
+      row?.is_present===true ||
+      row?.attended===true ||
+      row?.was_present===true ||
+      s.includes('presente') ||
+      s==='present'
+    ){
+      return {label:'PRESENTE',kind:'present'};
+    }
+
+    if(
+      row?.present===false ||
+      row?.is_present===false ||
+      row?.attended===false ||
+      row?.was_present===false ||
+      s.includes('ausente') ||
+      s==='absent'
+    ){
+      return {label:'AUSENTE',kind:'absent'};
+    }
+
+    return {label:s?String(row?.attendance_status||row?.status||row?.result).toUpperCase():'SIN REGISTRO',kind:'neutral'};
+  };
+
+  const citationCallStatus=(row)=>{
+    if(row?.is_suspended===true) return {label:'SUSPENDIDO',kind:'neutral'};
+    if(row?.is_called===true || row?.called===true) return {label:'CITADA',kind:'called'};
+    if(row?.is_called===false || row?.called===false) return {label:'NO CITADA',kind:'not-called'};
+    return {label:'SIN DEFINIR',kind:'neutral'};
+  };
+
+  const matchAttendanceStatus=(row)=>{
+    const s=String(
+      row?.attendance_status ??
+      row?.match_attendance_status ??
+      ''
+    ).trim().toLowerCase();
+
+    if(
+      row?.attended===true ||
+      row?.match_attended===true ||
+      row?.is_present===true ||
+      row?.present===true ||
+      s.includes('presente') ||
+      s.includes('asist')
+    ) return {label:'ASISTIÓ',kind:'present'};
+
+    if(
+      row?.attended===false ||
+      row?.match_attended===false ||
+      row?.is_present===false ||
+      row?.present===false ||
+      s.includes('ausente') ||
+      s.includes('no asist')
+    ) return {label:'NO ASISTIÓ',kind:'absent'};
+
+    return {label:'SIN ASISTENCIA REGISTRADA',kind:'neutral'};
+  };
+
+  const rowDate=(row)=>row?.date||row?.session_date||row?.training_date||row?.attendance_date||row?.match_date||row?.created_at||'';
+  const rowTime=(row)=>row?.match_time||row?.time||row?.start_time||'';
+
+  const prettyDate=(value)=>{
+    if(!value) return 'Sin fecha';
+    const raw=String(value).slice(0,10);
+    const [yy,mm,dd]=raw.split('-').map(Number);
+    if(!yy||!mm||!dd) return esc(String(value));
+    const d=new Date(yy,mm-1,dd);
+    return d.toLocaleDateString('es-AR',{weekday:'short',day:'2-digit',month:'short'});
+  };
+
+  const monthKey=(value)=>{
+    const raw=String(value||'').slice(0,7);
+    return /^\d{4}-\d{2}$/.test(raw)?raw:'sin-fecha';
+  };
+
+  const monthLabel=(key)=>{
+    if(key==='sin-fecha') return 'Sin fecha';
+    const [yy,mm]=key.split('-').map(Number);
+    return new Date(yy,mm-1,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+  };
+
+  const sortedTrainings=[...trainings].sort((a,b)=>String(rowDate(a)).localeCompare(String(rowDate(b))));
+  const trainingGroups=new Map();
+  sortedTrainings.forEach(row=>{
+    const key=monthKey(rowDate(row));
+    if(!trainingGroups.has(key)) trainingGroups.set(key,[]);
+    trainingGroups.get(key).push(row);
+  });
+
+  const renderedTrainingGroups=[...trainingGroups.entries()].map(([key,rows])=>`
+    <div class="commitment-month">
+      <div class="commitment-month-title">${esc(monthLabel(key))}</div>
+      <div class="commitment-events">
+        ${rows.map(row=>{
+          const status=trainingStatus(row);
+          const team=row?.team_name||row?.team||row?.category||'';
+          return `
+            <div class="commitment-event">
+              <div class="commitment-date-box">
+                <div class="commitment-date-main">${esc(prettyDate(rowDate(row)))}</div>
+                ${rowTime(row)?`<div class="commitment-date-time">${esc(rowTime(row))}</div>`:''}
+              </div>
+              <div class="commitment-event-info">
+                <div class="commitment-event-title">Entrenamiento</div>
+                ${team?`<div class="commitment-event-sub">${esc(team)}</div>`:''}
+              </div>
+              <span class="commitment-status ${status.kind}">${esc(status.label)}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  const citationRows=citations.map(row=>{
+    const call=citationCallStatus(row);
+    const attendance=matchAttendanceStatus(row);
+    const title=[row?.team_name,row?.league_name].filter(Boolean).join(' · ')||'Partido';
+    const place=row?.location||row?.venue||'';
+    return `
+      <div class="commitment-match-card">
+        <div class="commitment-match-top">
+          <div>
+            <div class="commitment-match-date">${esc(prettyDate(rowDate(row)))}${rowTime(row)?` · ${esc(rowTime(row))}`:''}</div>
+            <div class="commitment-match-title">${esc(title)}</div>
+            ${place?`<div class="commitment-event-sub">${esc(place)}</div>`:''}
+          </div>
+          <span class="commitment-status ${call.kind}">${esc(call.label)}</span>
+        </div>
+        <div class="commitment-match-bottom">
+          <span class="commitment-status ${attendance.kind}">${esc(attendance.label)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const extraMatchRows=matches.filter(row=>!citations.some(c=>String(c.match_id||'')===String(row.match_id||row.id||''))).map(row=>{
+    const attendance=matchAttendanceStatus(row);
+    const title=[row?.team_name,row?.league_name].filter(Boolean).join(' · ')||'Partido';
+    return `
+      <div class="commitment-match-card">
+        <div class="commitment-match-top">
+          <div>
+            <div class="commitment-match-date">${esc(prettyDate(rowDate(row)))}${rowTime(row)?` · ${esc(rowTime(row))}`:''}</div>
+            <div class="commitment-match-title">${esc(title)}</div>
+          </div>
+        </div>
+        <div class="commitment-match-bottom">
+          <span class="commitment-status ${attendance.kind}">${esc(attendance.label)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const trainingPresent=sortedTrainings.filter(r=>trainingStatus(r).kind==='present').length;
+  const trainingAbsent=sortedTrainings.filter(r=>trainingStatus(r).kind==='absent').length;
+  const trainingInjured=sortedTrainings.filter(r=>trainingStatus(r).kind==='injured').length;
+  const calledCount=citations.filter(r=>citationCallStatus(r).kind==='called').length;
+  const attendedCount=[...citations,...matches].filter(r=>matchAttendanceStatus(r).kind==='present').length;
+
+  const trainingTotal=Math.max(
+    Number(data?.training_total??data?.attendance_total??0),
+    sortedTrainings.length
+  );
+  const presentTotal=Math.max(
+    Number(data?.training_present??data?.attendance_present??0),
+    trainingPresent
+  );
+  const citationsTotal=Math.max(
+    Number(data?.citations_total??0),
+    calledCount
+  );
+  const matchesAttended=Math.max(
+    Number(data?.matches_attended??0),
+    attendedCount
+  );
+
+  openModal(`Compromiso ${y}`,`
+    <div class="commitment-profile">
+      <div>
+        <div class="eyebrow purple">JUGADOR</div>
+        <div class="commitment-player-name">${esc(studentName)}</div>
+        <div class="commitment-player-meta">
+          ${student?.dni?`DNI ${esc(student.dni)}`:''}
+          ${teams.length?` · ${esc(teams.join(' · '))}`:''}
+        </div>
+      </div>
+    </div>
+
+    <div class="metrics commitment-summary">
+      <div class="metric">
+        <div class="label">Entrenamientos</div>
+        <div class="value">${trainingTotal}</div>
+      </div>
+      <div class="metric green">
+        <div class="label">Presentes</div>
+        <div class="value">${presentTotal}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Citaciones</div>
+        <div class="value">${citationsTotal}</div>
+      </div>
+      <div class="metric brand">
+        <div class="label">Partidos asistidos</div>
+        <div class="value">${matchesAttended}</div>
+      </div>
+    </div>
+
+    <div class="commitment-mini-summary">
+      <div><strong>${trainingAbsent}</strong><span>Ausencias</span></div>
+      <div><strong>${trainingInjured}</strong><span>Lesionada</span></div>
+      <div><strong>${calledCount}</strong><span>Partidos citada</span></div>
+    </div>
+
+    <div class="commitment-section">
+      <div class="commitment-section-head">
+        <div>
+          <div class="eyebrow purple">ENTRENAMIENTOS</div>
+          <h3>Calendario de asistencia</h3>
+        </div>
+      </div>
+      ${renderedTrainingGroups || '<div class="empty">Todavía no hay entrenamientos registrados para este año.</div>'}
+    </div>
+
+    <div class="commitment-section">
+      <div class="commitment-section-head">
+        <div>
+          <div class="eyebrow purple">PARTIDOS</div>
+          <h3>Citaciones y asistencia</h3>
+        </div>
+      </div>
+      <div class="commitment-match-list">
+        ${citationRows || extraMatchRows || '<div class="empty">Todavía no hay partidos o citaciones registradas para este año.</div>'}
+        ${citationRows ? extraMatchRows : ''}
+      </div>
+    </div>
+  `);
+}
 async function renderUsers(){const {data,error}=await supabase.rpc('admin_get_staff_users_page',{p_search:'',p_limit:100,p_offset:0});if(error)throw error;const rows=Array.isArray(data)?data:[];content.innerHTML=`<div class="card"><h3>Usuarios de administración y entrenamiento</h3><p class="section-note">Primera versión web: consulta centralizada. La edición avanzada de roles y contraseñas sigue disponible en la app y se incorporará al panel.</p></div><div class="table-wrap" style="margin-top:16px"><table class="data-table"><thead><tr><th>Nombre</th><th>DNI</th><th>Email</th><th>Roles</th><th>Equipos</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td><td>${esc(r.dni)}</td><td>${esc(r.email||'-')}</td><td><div class="pill-row">${(r.roles||[r.role]).filter(Boolean).map(x=>`<span class="pill">${esc(x)}</span>`).join('')}</div></td><td>${esc(r.team_names||'-')}</td></tr>`).join('')}</tbody></table></div>`;}
 
 async function renderNews(){const {data,error}=await supabase.rpc('admin_get_news_current_month',{});if(error)throw error;content.innerHTML=`<div class="grid-2"><div class="card"><h3>Nueva novedad</h3><p class="card-sub">Se enviará también a la app según la configuración actual.</p><form id="newsForm" class="form-stack" style="margin-top:15px"><label>Mensaje<textarea name="message" rows="7" required></textarea></label><button class="btn primary">Publicar novedad</button></form></div><div class="card"><h3>Novedades del mes</h3><div style="margin-top:12px">${(data||[]).map(n=>`<div class="summary-box"><strong>${dateLabel(n.created_at)}</strong><p>${esc(n.message)}</p></div>`).join('')||'<div class="empty">Sin novedades este mes</div>'}</div></div></div>`;$('#newsForm').onsubmit=async e=>{e.preventDefault();const msg=e.target.message.value.trim();const {error}=await supabase.rpc('admin_send_news',{p_message:msg});if(error){toast(error.message,'error');return;}toast('Novedad publicada');renderNews();};}
