@@ -627,9 +627,9 @@ async function renderPayments(){
       </div>
     `:'<div class="card"><div class="empty">No encontramos jugadores con esa búsqueda.</div></div>';
 
-    $('.pay-account').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
-    $('.pay-new').forEach(b=>b.onclick=()=>openPaymentEntry(rows.find(r=>r.id===b.dataset.id)));
-    $('.pay-review').forEach(b=>b.onclick=()=>openPaymentReview(rows.find(r=>r.id===b.dataset.id)));
+    $$('.pay-account').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
+    $$('.pay-new').forEach(b=>b.onclick=()=>openPaymentEntry(rows.find(r=>r.id===b.dataset.id)));
+    $$('.pay-review').forEach(b=>b.onclick=()=>openPaymentReview(rows.find(r=>r.id===b.dataset.id)));
   };
 
   $('#paySearchBtn').onclick=runSearch;
@@ -792,7 +792,7 @@ async function openPaymentReview(row){
 
     const itemMap=new Map(items.map(item=>[String(item.id),item]));
 
-    $('.review-proof').forEach(button=>{
+    $$('.review-proof').forEach(button=>{
       button.onclick=()=>{
         const item=itemMap.get(String(button.dataset.submission));
         const file=item?.files?.[Number(button.dataset.fileIndex)];
@@ -823,8 +823,8 @@ async function openPaymentReview(row){
       }
     };
 
-    $('.review-approve').forEach(b=>b.onclick=()=>resolve(b.dataset.id,'approve'));
-    $('.review-reject').forEach(b=>b.onclick=()=>resolve(b.dataset.id,'reject'));
+    $$('.review-approve').forEach(b=>b.onclick=()=>resolve(b.dataset.id,'approve'));
+    $$('.review-reject').forEach(b=>b.onclick=()=>resolve(b.dataset.id,'reject'));
 
   }catch(ex){
     console.error('LOAD PAYMENT REVIEW ERROR:',ex);
