@@ -67,6 +67,56 @@ function toast(message, type='success') {
 }
 function money(v){return new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',minimumFractionDigits:0,maximumFractionDigits:0}).format(Number(v||0));}
 function dateLabel(v){ if(!v) return '-'; const [y,m,d]=String(v).slice(0,10).split('-'); return `${d}/${m}/${y}`; }
+
+function storageRefParts(reference){
+  const ref=String(reference||'').trim();
+  if(!ref.startsWith('storage://')) return null;
+  const rest=ref.slice('storage://'.length);
+  const slash=rest.indexOf('/');
+  if(slash<=0) return null;
+  return {bucket:rest.slice(0,slash),path:rest.slice(slash+1)};
+}
+
+async function getPrivateFileUrl(reference){
+  const ref=String(reference||'').trim();
+  if(!ref) throw new Error('No hay archivo disponible.');
+  if(/^https?:\/\//i.test(ref)) return ref;
+
+  const parts=storageRefParts(ref);
+  if(!parts) throw new Error('La referencia del archivo no es válida.');
+
+  const {data,error}=await supabase.storage
+    .from(parts.bucket)
+    .createSignedUrl(parts.path,900);
+
+  if(error || !data?.signedUrl) throw error||new Error('No pudimos abrir el archivo.');
+  return data.signedUrl;
+}
+
+async function openPaymentProof(file){
+  try{
+    const url=await getPrivateFileUrl(file?.storage_ref||file?.proof_path);
+    const mime=String(file?.mime_type||'');
+    const name=String(file?.file_name||'Comprobante');
+
+    if(mime.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(name)){
+      openModal('Comprobante',`
+        <div class="proof-viewer">
+          <img src="${esc(url)}" alt="${esc(name)}">
+          <div class="form-actions">
+            <a class="btn light" href="${esc(url)}" target="_blank" rel="noopener">Abrir en otra pestaña</a>
+          </div>
+        </div>
+      `);
+      return;
+    }
+
+    window.open(url,'_blank','noopener');
+  }catch(ex){
+    console.error('OPEN PAYMENT PROOF ERROR:',ex);
+    toast(ex?.message||'No pudimos abrir el comprobante.','error');
+  }
+}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function loading(text='Cargando información...'){ content.innerHTML=`<div class="loading"><div><div class="spinner"></div>${esc(text)}</div></div>`; }
 function destroyCharts(){ charts.forEach(c=>{try{c.destroy()}catch{}}); charts=[]; }
@@ -321,9 +371,152 @@ async function editPlayer(row=null){
 }
 
 async function openPlayerAccount(row){
-  const {data,error}=await supabase.rpc('admin_finance_get_account',{p_student_id:row.id});
-  if(error){toast('No se pudo cargar la cuenta','error');return;}
-  openModal(`Cuenta · ${row.first_name} ${row.last_name}`,`<div class="metrics"><div class="metric red"><div class="label">Deuda</div><div class="value">${money(data?.debt)}</div></div><div class="metric"><div class="label">Pagos a revisar</div><div class="value">${data?.pending_review_count||0}</div></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Concepto</th><th>Fecha</th><th>Forma</th><th>Importe</th></tr></thead><tbody>${(data?.movements||[]).map(m=>`<tr><td>${esc(m.concept)}</td><td>${dateLabel(m.paid_at)}</td><td>${esc(m.payment_method)}</td><td class="money positive">${money(m.amount)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">Sin movimientos</td></tr>'}</tbody></table></div>`);
+  try{
+    const [accountRes,settingsRes]=await Promise.all([
+      supabase.rpc('admin_finance_get_account',{p_student_id:row.id}),
+      supabase.rpc('admin_finance_get_settings',{})
+    ]);
+
+    if(accountRes.error) throw accountRes.error;
+    if(settingsRes.error) throw settingsRes.error;
+
+    const data=accountRes.data||{};
+    const settings=settingsRes.data||{};
+    const activities=settings.activities||[];
+    const discounts=settings.discounts||[];
+
+    openModal(`Cuenta · ${row.first_name} ${row.last_name}`,`
+      <div class="metrics account-metrics">
+        <div class="metric ${Number(data?.debt||0)>0?'red':'green'}">
+          <div class="label">Estado de cuenta</div>
+          <div class="value">${Number(data?.debt||0)>0?money(data.debt):'SIN DEUDA'}</div>
+          <div class="sub">Deuda vencida a la fecha</div>
+        </div>
+        <div class="metric brand">
+          <div class="label">Cuota mensual</div>
+          <div class="value">${money(data?.monthly_final)}</div>
+          <div class="sub">Según actividad y descuento</div>
+        </div>
+        <div class="metric">
+          <div class="label">Pagos a revisar</div>
+          <div class="value">${Number(data?.pending_review_count||0)}</div>
+          <div class="sub">Informados por adultos responsables</div>
+        </div>
+      </div>
+
+      <div class="card account-config-card">
+        <div class="card-head">
+          <div>
+            <h3>Actividad y descuento</h3>
+            <div class="card-sub">Configuración económica de este jugador</div>
+          </div>
+        </div>
+
+        <form id="billingProfileForm" class="form-grid">
+          <label>Actividad
+            <select name="activity" required>
+              <option value="">Seleccionar actividad</option>
+              ${activities.map(a=>`<option value="${a.id}" ${data?.activity_id===a.id?'selected':''}>${esc(a.name)} · ${money(a.amount)} · vence día ${a.billing_day}</option>`).join('')}
+            </select>
+          </label>
+
+          <label>Descuento
+            <select name="discount">
+              <option value="" ${!data?.discount_id?'selected':''}>SIN DESCUENTO · 0%</option>
+              ${discounts.map(d=>`<option value="${d.id}" ${data?.discount_id===d.id?'selected':''}>${esc(d.name)} · ${Number(d.percentage||0)}%</option>`).join('')}
+            </select>
+          </label>
+
+          <div class="summary-box span-2">
+            <div class="kpi-line"><span>Valor bruto actual</span><strong>${money(data?.monthly_base)}</strong></div>
+            <div class="kpi-line"><span>Descuento aplicado</span><strong>${Number(data?.discount_percentage||0)}%</strong></div>
+            <div class="kpi-line"><span>Cuota resultante</span><strong class="money positive">${money(data?.monthly_final)}</strong></div>
+          </div>
+
+          <div class="form-actions span-2">
+            <button class="btn primary" type="submit">Guardar actividad y descuento</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="account-actions">
+        <button class="btn primary" id="accountLoadPayment">Cargar pago</button>
+        <button class="btn light" id="accountReviewPayments">
+          Revisar pagos ${Number(data?.pending_review_count||0)>0?`(${Number(data.pending_review_count)})`:''}
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h3>Movimientos</h3>
+            <div class="card-sub">Historial de pagos registrados</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Concepto</th><th>Fecha</th><th>Forma</th><th>Importe</th><th>Comprobante</th></tr>
+            </thead>
+            <tbody>
+              ${(data?.movements||[]).map(m=>`<tr>
+                <td class="name-cell">${esc(m.concept)}</td>
+                <td>${dateLabel(m.paid_at)}</td>
+                <td>${esc(m.payment_method)}</td>
+                <td class="money positive">${money(m.amount)}</td>
+                <td>${m.receipt_number?esc(m.receipt_number):'-'}</td>
+              </tr>`).join('')||'<tr><td colspan="5" class="empty">Sin movimientos</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `);
+
+    $('#billingProfileForm').onsubmit=async e=>{
+      e.preventDefault();
+      const form=e.currentTarget;
+      const btn=form.querySelector('button[type="submit"]');
+      const fd=new FormData(form);
+      const activityId=String(fd.get('activity')||'');
+      const discountId=String(fd.get('discount')||'');
+
+      if(!activityId){
+        toast('Seleccioná una actividad para el jugador.','error');
+        return;
+      }
+
+      btn.disabled=true;
+      const old=btn.textContent;
+      btn.textContent='Guardando...';
+
+      try{
+        const {error}=await supabase.rpc('admin_finance_set_student_profile',{
+          p_student_id:row.id,
+          p_activity_id:activityId,
+          p_discount_id:discountId||null
+        });
+        if(error) throw error;
+
+        toast('Actividad y descuento actualizados');
+        await openPlayerAccount(row);
+      }catch(ex){
+        console.error('SAVE BILLING PROFILE ERROR:',ex);
+        toast(ex?.message||'No pudimos guardar la actividad y el descuento.','error');
+      }finally{
+        if(btn?.isConnected){
+          btn.disabled=false;
+          btn.textContent=old;
+        }
+      }
+    };
+
+    $('#accountLoadPayment').onclick=()=>openPaymentEntry(row);
+    $('#accountReviewPayments').onclick=()=>openPaymentReview(row);
+
+  }catch(ex){
+    console.error('OPEN PLAYER ACCOUNT ERROR:',ex);
+    toast(ex?.message||'No se pudo cargar la cuenta.','error');
+  }
 }
 
 async function renderTeams(){
@@ -378,8 +571,266 @@ function editSponsor(r=null){openModal(r?'Editar sponsor':'Nuevo sponsor',`<form
 async function renderBenefits(){const {data,error}=await supabase.from('benefits').select('*').order('created_at',{ascending:false});if(error)throw error;const rows=data||[];content.innerHTML=`<div class="toolbar"><button id="newBenefit" class="btn primary">+ Nuevo beneficio</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Beneficio</th><th>Marca</th><th>Descripción</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td class="name-cell">${esc(r.benefit)}</td><td>${esc(r.brand_name)}</td><td>${esc(r.description||'-')}</td><td><button class="btn light small edit-benefit" data-id="${r.id}">Editar</button></td></tr>`).join('')}</tbody></table></div>`;$('#newBenefit').onclick=()=>editBenefit();$$('.edit-benefit').forEach(b=>b.onclick=()=>editBenefit(rows.find(r=>r.id===b.dataset.id)));}
 function editBenefit(r=null){openModal(r?'Editar beneficio':'Nuevo beneficio',`<form id="benefitForm" class="form-grid"><label>Beneficio<input name="benefit" required value="${esc(r?.benefit||'')}"></label><label>Marca<input name="brand" required value="${esc(r?.brand_name||'')}"></label><label class="span-2">Descripción<textarea name="description" rows="3">${esc(r?.description||'')}</textarea></label><label>URL logo<input name="logo" value="${esc(r?.logo_url||'')}"></label><label>Sitio web<input name="web" value="${esc(r?.website_url||'')}"></label><div class="form-actions span-2"><button type="button" id="cancelModal" class="btn light">Cancelar</button><button class="btn primary">Guardar</button></div></form>`);$('#cancelModal').onclick=closeModal;$('#benefitForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const {error}=await supabase.rpc('admin_save_benefit',{p_benefit_id:r?.id||'',p_benefit:fd.get('benefit'),p_description:fd.get('description'),p_brand_name:fd.get('brand'),p_logo_url:fd.get('logo'),p_website_url:fd.get('web')});if(error){toast(error.message,'error');return;}closeModal();toast('Beneficio guardado');renderBenefits();};}
 
-async function renderPayments(){content.innerHTML=`<div class="toolbar"><input id="paySearch" class="grow" placeholder="Buscar jugador por DNI, nombre o apellido"><button id="paySearchBtn" class="btn primary">Buscar</button></div><div id="payResults"></div>`;$('#paySearchBtn').onclick=async()=>{const q=$('#paySearch').value.trim();if(!q)return;const {data,error}=await supabase.rpc('admin_get_students_page',{p_search:q,p_filter:'all',p_limit:30,p_offset:0});if(error){toast(error.message,'error');return;}const rows=data?.items||[];$('#payResults').innerHTML=`<div class="table-wrap"><table class="data-table"><thead><tr><th>Jugador</th><th>DNI</th><th>Cuenta</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td><td>${esc(r.dni)}</td><td><button class="btn light small pay-account" data-id="${r.id}">Ver cuenta</button><button class="btn primary small pay-new" data-id="${r.id}" style="margin-left:6px">Cargar pago</button></td></tr>`).join('')}</tbody></table></div>`;$$('.pay-account').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));$$('.pay-new').forEach(b=>b.onclick=()=>openPaymentEntry(rows.find(r=>r.id===b.dataset.id)));};}
-async function openPaymentEntry(row){const {data,error}=await supabase.rpc('admin_finance_get_payment_options',{p_student_id:row.id});if(error){toast(error.message,'error');return;}const charges=data?.pending_charges||[],extras=data?.extra_concepts||[];openModal(`Cargar pago · ${row.first_name} ${row.last_name}`,`<form id="paymentForm" class="form-grid"><label class="span-2">Concepto<select name="source"><optgroup label="Cuotas / deudas">${charges.map(c=>`<option value="charge:${c.id}" data-amount="${c.balance}">${esc(c.concept)} · ${money(c.balance)}</option>`).join('')}</optgroup><optgroup label="Otros conceptos">${extras.map(c=>`<option value="extra:${c.id}" data-amount="${c.default_amount}">${esc(c.name)} · ${money(c.default_amount)}</option>`).join('')}</optgroup></select></label><label>Importe<input name="amount" type="number" step="0.01" required></label><label>Fecha<input name="date" type="date" value="${new Date().toISOString().slice(0,10)}"></label><label>Forma de pago<select name="method"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option></select></label><div class="form-actions span-2"><button type="button" id="cancelModal" class="btn light">Cancelar</button><button class="btn primary">Registrar pago</button></div></form>`);$('#cancelModal').onclick=closeModal;const sel=$('#paymentForm').source;const sync=()=>{const o=sel.selectedOptions[0];if(o)$('#paymentForm').amount.value=o.dataset.amount||'';};sel.onchange=sync;sync();$('#paymentForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const [type,id]=String(fd.get('source')).split(':');const {error}=await supabase.rpc('admin_finance_record_payment',{p_student_id:row.id,p_charge_id:type==='charge'?id:null,p_extra_concept_id:type==='extra'?id:null,p_amount:Number(fd.get('amount')),p_payment_method:fd.get('method'),p_paid_at:fd.get('date')});if(error){toast(error.message,'error');return;}closeModal();toast('Pago registrado');};}
+async function renderPayments(){
+  content.innerHTML=`
+    <div class="toolbar">
+      <input id="paySearch" class="grow" placeholder="Buscar jugador por DNI, nombre o apellido">
+      <button id="paySearchBtn" class="btn primary">Buscar</button>
+    </div>
+    <div id="payResults">
+      <div class="card">
+        <h3>Gestión de cuentas</h3>
+        <p class="section-note">Buscá un jugador para asignar actividad y descuento, cargar pagos o revisar pagos informados por sus adultos responsables.</p>
+      </div>
+    </div>
+  `;
+
+  const runSearch=async()=>{
+    const q=$('#paySearch').value.trim();
+    if(!q){
+      toast('Ingresá DNI, nombre o apellido.','error');
+      return;
+    }
+
+    const {data,error}=await supabase.rpc('admin_get_students_page',{
+      p_search:q,
+      p_filter:'all',
+      p_limit:30,
+      p_offset:0
+    });
+
+    if(error){
+      toast(error.message,'error');
+      return;
+    }
+
+    const rows=data?.items||[];
+
+    $('#payResults').innerHTML=rows.length?`
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Jugador</th><th>DNI</th><th>Gestión</th></tr></thead>
+          <tbody>
+            ${rows.map(r=>`<tr>
+              <td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td>
+              <td>${esc(r.dni)}</td>
+              <td>
+                <div class="actions">
+                  <button class="btn light small pay-account" data-id="${r.id}">Cuenta</button>
+                  <button class="btn primary small pay-new" data-id="${r.id}">Cargar pago</button>
+                  <button class="btn light small pay-review" data-id="${r.id}">Revisar pagos</button>
+                </div>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `:'<div class="card"><div class="empty">No encontramos jugadores con esa búsqueda.</div></div>';
+
+    $('.pay-account').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
+    $('.pay-new').forEach(b=>b.onclick=()=>openPaymentEntry(rows.find(r=>r.id===b.dataset.id)));
+    $('.pay-review').forEach(b=>b.onclick=()=>openPaymentReview(rows.find(r=>r.id===b.dataset.id)));
+  };
+
+  $('#paySearchBtn').onclick=runSearch;
+  $('#paySearch').addEventListener('keydown',e=>{
+    if(e.key==='Enter'){
+      e.preventDefault();
+      runSearch();
+    }
+  });
+}
+
+async function openPaymentEntry(row){
+  const {data,error}=await supabase.rpc('admin_finance_get_payment_options',{p_student_id:row.id});
+  if(error){
+    toast(error.message,'error');
+    return;
+  }
+
+  const charges=data?.pending_charges||[];
+  const extras=data?.extra_concepts||[];
+
+  if(!charges.length && !extras.length){
+    toast('Este jugador no tiene conceptos disponibles para cobrar.','error');
+    return;
+  }
+
+  openModal(`Cargar pago · ${row.first_name} ${row.last_name}`,`
+    <form id="paymentForm" class="form-grid">
+      <label class="span-2">Concepto
+        <select name="source" required>
+          ${charges.length?`<optgroup label="Cuotas / deudas">${charges.map(c=>`<option value="charge:${c.id}" data-amount="${c.balance}">${esc(c.concept)} · ${money(c.balance)}</option>`).join('')}</optgroup>`:''}
+          ${extras.length?`<optgroup label="Otros conceptos">${extras.map(c=>`<option value="extra:${c.id}" data-amount="${c.default_amount}">${esc(c.name)} · ${money(c.default_amount)}</option>`).join('')}</optgroup>`:''}
+        </select>
+      </label>
+
+      <label>Importe
+        <input name="amount" type="number" step="0.01" min="0.01" required>
+      </label>
+
+      <label>Fecha
+        <input name="date" type="date" value="${new Date().toISOString().slice(0,10)}" required>
+      </label>
+
+      <label>Forma de pago
+        <select name="method">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="otro">Otro</option>
+        </select>
+      </label>
+
+      <div class="form-actions span-2">
+        <button type="button" id="cancelModal" class="btn light">Cancelar</button>
+        <button class="btn primary" type="submit">Registrar pago</button>
+      </div>
+    </form>
+  `);
+
+  $('#cancelModal').onclick=closeModal;
+  const form=$('#paymentForm');
+  const sel=form.source;
+
+  const sync=()=>{
+    const o=sel.selectedOptions[0];
+    if(o) form.amount.value=o.dataset.amount||'';
+  };
+
+  sel.onchange=sync;
+  sync();
+
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(form);
+    const [type,id]=String(fd.get('source')).split(':');
+    const btn=form.querySelector('button[type="submit"]');
+    btn.disabled=true;
+    const old=btn.textContent;
+    btn.textContent='Registrando...';
+
+    try{
+      const {error}=await supabase.rpc('admin_finance_record_payment',{
+        p_student_id:row.id,
+        p_charge_id:type==='charge'?id:null,
+        p_extra_concept_id:type==='extra'?id:null,
+        p_amount:Number(fd.get('amount')),
+        p_payment_method:fd.get('method'),
+        p_paid_at:fd.get('date')
+      });
+
+      if(error) throw error;
+
+      closeModal();
+      toast('Pago registrado correctamente');
+      if(activeSection==='payments') await renderPayments();
+    }catch(ex){
+      console.error('RECORD PAYMENT ERROR:',ex);
+      toast(ex?.message||'No pudimos registrar el pago.','error');
+    }finally{
+      if(btn?.isConnected){
+        btn.disabled=false;
+        btn.textContent=old;
+      }
+    }
+  };
+}
+
+async function openPaymentReview(row){
+  try{
+    const {data,error}=await supabase.rpc('admin_finance_get_pending_submissions',{
+      p_student_id:row.id
+    });
+
+    if(error) throw error;
+    const items=Array.isArray(data)?data:[];
+
+    openModal(`Revisar pagos · ${row.first_name} ${row.last_name}`,`
+      <div class="review-list">
+        ${items.length?items.map(item=>`
+          <div class="review-card" data-submission-id="${item.id}">
+            <div class="review-card-head">
+              <div>
+                <div class="eyebrow purple">${item.source_kind==='batch'?'PAGO ENVIADO POR FAMILIA':'PAGO INFORMADO'}</div>
+                <div class="review-amount">${money(item.amount)}</div>
+                <div class="card-sub">${dateLabel(item.paid_at)} · ${esc(item.payment_method||'transferencia')}</div>
+              </div>
+              ${statusBadge('PENDIENTE','amber')}
+            </div>
+
+            <div class="review-section-title">Conceptos</div>
+            <div class="review-items">
+              ${(item.items||[]).length?(item.items||[]).map(detail=>`
+                <div class="kpi-line">
+                  <span>${esc(detail.concept)}</span>
+                  <strong>${money(detail.amount)}</strong>
+                </div>
+              `).join(''):`<div class="kpi-line"><span>${esc(item.concept||'Pago informado')}</span><strong>${money(item.amount)}</strong></div>`}
+            </div>
+
+            <div class="review-section-title">Comprobantes</div>
+            <div class="proof-buttons">
+              ${(item.files||[]).length?(item.files||[]).map((file,index)=>`
+                <button
+                  class="btn light small review-proof"
+                  data-submission="${item.id}"
+                  data-file-index="${index}">
+                  Ver comprobante ${index+1}
+                </button>
+              `).join(''):'<span class="section-note">Sin archivo adjunto.</span>'}
+            </div>
+
+            <div class="review-actions">
+              <button class="btn danger review-reject" data-id="${item.id}">Rechazar</button>
+              <button class="btn green review-approve" data-id="${item.id}">Aprobar pago</button>
+            </div>
+          </div>
+        `).join(''):'<div class="empty">No hay pagos pendientes de revisión para este jugador.</div>'}
+      </div>
+    `);
+
+    const itemMap=new Map(items.map(item=>[String(item.id),item]));
+
+    $('.review-proof').forEach(button=>{
+      button.onclick=()=>{
+        const item=itemMap.get(String(button.dataset.submission));
+        const file=item?.files?.[Number(button.dataset.fileIndex)];
+        if(file) openPaymentProof(file);
+      };
+    });
+
+    const resolve=async(id,action)=>{
+      const label=action==='approve'?'aprobar':'rechazar';
+      if(!confirm(`¿Confirmás ${label} este pago?`)) return;
+
+      const buttons=$('.review-approve,.review-reject');
+      buttons.forEach(b=>b.disabled=true);
+
+      try{
+        const {error}=await supabase.rpc('admin_finance_resolve_submission',{
+          p_submission_id:id,
+          p_action:action
+        });
+        if(error) throw error;
+
+        toast(action==='approve'?'Pago aprobado correctamente':'Pago rechazado');
+        await openPaymentReview(row);
+      }catch(ex){
+        console.error('RESOLVE PAYMENT ERROR:',ex);
+        toast(ex?.message||'No pudimos procesar el pago.','error');
+        buttons.forEach(b=>b.disabled=false);
+      }
+    };
+
+    $('.review-approve').forEach(b=>b.onclick=()=>resolve(b.dataset.id,'approve'));
+    $('.review-reject').forEach(b=>b.onclick=()=>resolve(b.dataset.id,'reject'));
+
+  }catch(ex){
+    console.error('LOAD PAYMENT REVIEW ERROR:',ex);
+    toast(ex?.message||'No pudimos cargar los pagos a revisar.','error');
+  }
+}
 
 async function renderConcepts(){const {data,error}=await supabase.rpc('admin_finance_get_settings',{});if(error)throw error;const d=data||{};content.innerHTML=`<div class="grid-3"><div class="card"><div class="card-head"><h3>Actividades</h3><button class="btn primary small" id="newActivity">+ Agregar</button></div>${(d.activities||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.amount)} · día ${x.billing_day}</span><button class="btn light small edit-activity" data-id="${x.id}">Editar</button></div>`).join('')}</div><div class="card"><div class="card-head"><h3>Descuentos</h3><button class="btn primary small" id="newDiscount">+ Agregar</button></div><div class="kpi-line"><span>SIN DESCUENTO</span><strong>0%</strong></div>${(d.discounts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)}</span><button class="btn light small edit-discount" data-id="${x.id}">${x.percentage}% · Editar</button></div>`).join('')}</div><div class="card"><div class="card-head"><h3>Otros conceptos</h3><button class="btn primary small" id="newExtra">+ Agregar</button></div>${(d.concepts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.default_amount)}</span><button class="btn light small edit-extra" data-id="${x.id}">Editar</button></div>`).join('')}</div></div>`;
   $('#newActivity').onclick=()=>editConceptItem('activity');$('#newDiscount').onclick=()=>editConceptItem('discount');$('#newExtra').onclick=()=>editConceptItem('extra');$$('.edit-activity').forEach(b=>b.onclick=()=>editConceptItem('activity',(d.activities||[]).find(x=>x.id===b.dataset.id)));$$('.edit-discount').forEach(b=>b.onclick=()=>editConceptItem('discount',(d.discounts||[]).find(x=>x.id===b.dataset.id)));$$('.edit-extra').forEach(b=>b.onclick=()=>editConceptItem('extra',(d.concepts||[]).find(x=>x.id===b.dataset.id)));
