@@ -42,3 +42,46 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 .proof-viewer{display:grid;gap:14px}
 .proof-viewer img{display:block;max-width:100%;max-height:68vh;margin:0 auto;border-radius:14px;border:1px solid var(--line);object-fit:contain;background:#f7f7f7}
 @media(max-width:760px){.account-metrics{grid-template-columns:1fr}.review-card-head{flex-direction:column}.review-actions{flex-direction:column}.review-actions .btn{width:100%}}
+
+
+.commitment-profile{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:4px 0 14px}
+.commitment-player-name{font-size:24px;font-weight:900;color:var(--ink);margin-top:4px}
+.commitment-player-meta{font-size:13px;color:var(--muted);font-weight:700;margin-top:5px}
+.commitment-summary{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px}
+.commitment-mini-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.commitment-mini-summary>div{border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:#faf9fb;display:flex;flex-direction:column}
+.commitment-mini-summary strong{font-size:20px;color:var(--brand)}
+.commitment-mini-summary span{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;margin-top:2px}
+.commitment-section{border-top:1px solid var(--line);padding-top:18px;margin-top:18px}
+.commitment-section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.commitment-section-head h3{margin:3px 0 0;font-size:18px}
+.commitment-month{margin-bottom:16px}
+.commitment-month-title{text-transform:capitalize;font-size:13px;font-weight:900;color:var(--brand);margin-bottom:7px}
+.commitment-events{display:grid;gap:8px}
+.commitment-event{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:12px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:11px 13px;background:#fff}
+.commitment-date-main{font-size:13px;font-weight:900;color:var(--ink);text-transform:capitalize}
+.commitment-date-time{font-size:11px;color:var(--muted);margin-top:2px}
+.commitment-event-title{font-weight:900;color:var(--ink)}
+.commitment-event-sub{font-size:12px;color:var(--muted);font-weight:700;margin-top:3px;word-break:break-word}
+.commitment-status{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:7px 10px;font-size:10px;font-weight:900;letter-spacing:.02em;white-space:nowrap}
+.commitment-status.present{background:#e9f8ef;color:#15783c;border:1px solid #b9e5c8}
+.commitment-status.absent{background:#fff0f0;color:#b42318;border:1px solid #f2b8b5}
+.commitment-status.injured{background:#fff4e8;color:#a15c00;border:1px solid #f0cf9e}
+.commitment-status.called{background:#efe7f8;color:var(--brand);border:1px solid #d8c5ec}
+.commitment-status.not-called{background:#f4f4f5;color:#5d5d63;border:1px solid #dddddf}
+.commitment-status.neutral{background:#f4f4f5;color:#666;border:1px solid #ddd}
+.commitment-match-list{display:grid;gap:10px}
+.commitment-match-card{border:1px solid var(--line);border-radius:16px;padding:14px;background:#fff}
+.commitment-match-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.commitment-match-date{font-size:12px;font-weight:900;color:var(--brand);text-transform:capitalize}
+.commitment-match-title{font-size:15px;font-weight:900;color:var(--ink);margin-top:3px}
+.commitment-match-bottom{margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+@media(max-width:860px){
+  .commitment-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .commitment-event{grid-template-columns:1fr;align-items:start}
+  .commitment-event .commitment-status{justify-self:start}
+}
+@media(max-width:560px){
+  .commitment-mini-summary{grid-template-columns:1fr}
+  .commitment-match-top{flex-direction:column}
+}
