@@ -28,12 +28,42 @@ const sectionTitles = {
   payments:'Pagos', concepts:'Conceptos', expenses:'Gastos', balances:'Balances', files:'Archivos'
 };
 
+function friendlyErrorText(message) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+
+  if (
+    lower.includes('students_dni_key') ||
+    (lower.includes('duplicate key value') && lower.includes('dni'))
+  ) {
+    return 'Ya existe un jugador registrado con ese DNI. Buscalo en Jugadores y editá su ficha.';
+  }
+
+  if (lower.includes('row-level security') || lower.includes('permission denied')) {
+    return 'No tenés permisos para realizar esta acción. Volvé a iniciar sesión y probá nuevamente.';
+  }
+
+  if (lower.includes('failed to fetch') || lower.includes('network')) {
+    return 'No pudimos comunicarnos con el servidor. Revisá tu conexión e intentá nuevamente.';
+  }
+
+  if (lower.includes('not_authorized')) {
+    return 'Tu usuario no está autorizado para realizar esta acción.';
+  }
+
+  if (lower.includes('student_not_found')) {
+    return 'No encontramos ese jugador. Actualizá la pantalla e intentá nuevamente.';
+  }
+
+  return text || 'Ocurrió un inconveniente. Intentá nuevamente.';
+}
+
 function toast(message, type='success') {
   const el = $('#toast');
-  el.textContent = message;
+  el.textContent = type === 'error' ? friendlyErrorText(message) : message;
   el.className = `toast show ${type}`;
   clearTimeout(el._timer);
-  el._timer = setTimeout(() => el.className='toast', 3200);
+  el._timer = setTimeout(() => el.className='toast', 4200);
 }
 function money(v){return new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',minimumFractionDigits:0,maximumFractionDigits:0}).format(Number(v||0));}
 function dateLabel(v){ if(!v) return '-'; const [y,m,d]=String(v).slice(0,10).split('-'); return `${d}/${m}/${y}`; }
@@ -170,25 +200,123 @@ async function renderPlayers(search=''){
 }
 
 async function editPlayer(row=null){
-  const memberships=row?await supabase.from('team_students').select('team_id').eq('student_id',row.id).eq('status','activo'): {data:[]};
+  const memberships=row
+    ? await supabase.from('team_students').select('team_id').eq('student_id',row.id).eq('status','activo')
+    : {data:[]};
+
   const selected=new Set((memberships.data||[]).map(x=>x.team_id));
+
   openModal(row?'Editar jugador':'Nuevo jugador',`<form id="playerForm" class="form-grid">
-    <label>Nombre<input name="first_name" required value="${esc(row?.first_name||'')}"></label><label>Apellido<input name="last_name" required value="${esc(row?.last_name||'')}"></label>
-    <label>DNI<input name="dni" required value="${esc(row?.dni||'')}"></label><label>Fecha de nacimiento<input type="date" name="birth_date" required value="${esc(row?.birth_date||'')}"></label>
-    <label>Género<select name="gender"><option value="femenino" ${row?.gender==='femenino'?'selected':''}>Femenino</option><option value="masculino" ${row?.gender==='masculino'?'selected':''}>Masculino</option><option value="otro" ${row?.gender==='otro'?'selected':''}>Otro</option></select></label>
-    <label>Estado<select name="is_enabled"><option value="true" ${row?.is_enabled!==false?'selected':''}>Habilitado</option><option value="false" ${row?.is_enabled===false?'selected':''}>No habilitado</option></select></label>
-    <label class="span-2">Equipos<select name="teams" multiple size="${Math.min(6,Math.max(3,catalogs.teams.length))}">${catalogs.teams.map(t=>`<option value="${t.id}" ${selected.has(t.id)?'selected':''}>${esc(t.name)}</option>`).join('')}</select></label>
+    <label>Nombre<input name="first_name" required value="${esc(row?.first_name||'')}"></label>
+    <label>Apellido<input name="last_name" required value="${esc(row?.last_name||'')}"></label>
+    <label>DNI<input name="dni" required inputmode="numeric" autocomplete="off" value="${esc(row?.dni||'')}"></label>
+    <label>Fecha de nacimiento<input type="date" name="birth_date" required value="${esc(row?.birth_date||'')}"></label>
+    <label>Género<select name="gender">
+      <option value="femenino" ${row?.gender==='femenino'?'selected':''}>Femenino</option>
+      <option value="masculino" ${row?.gender==='masculino'?'selected':''}>Masculino</option>
+      <option value="otro" ${row?.gender==='otro'?'selected':''}>Otro</option>
+    </select></label>
+    <label>Estado<select name="is_enabled">
+      <option value="true" ${row?.is_enabled!==false?'selected':''}>Habilitado</option>
+      <option value="false" ${row?.is_enabled===false?'selected':''}>No habilitado</option>
+    </select></label>
+    <label class="span-2">Equipos<select name="teams" multiple size="${Math.min(6,Math.max(3,catalogs.teams.length))}">
+      ${catalogs.teams.map(t=>`<option value="${t.id}" ${selected.has(t.id)?'selected':''}>${esc(t.name)}</option>`).join('')}
+    </select></label>
     <label class="check-row span-2"><input type="checkbox" name="is_injured" ${row?.is_injured?'checked':''}> Marcar como lesionado</label>
-    <div class="form-actions span-2"><button type="button" class="btn light" id="cancelModal">Cancelar</button><button class="btn primary" type="submit">Guardar jugador</button></div>
+    <div class="form-actions span-2">
+      <button type="button" class="btn light" id="cancelModal">Cancelar</button>
+      <button class="btn primary" type="submit">Guardar jugador</button>
+    </div>
   </form>`);
+
   $('#cancelModal').onclick=closeModal;
+
   $('#playerForm').onsubmit=async e=>{
-    e.preventDefault(); const fd=new FormData(e.target); const payload={first_name:fd.get('first_name').trim(),last_name:fd.get('last_name').trim(),dni:String(fd.get('dni')).replace(/\D/g,''),birth_date:fd.get('birth_date'),gender:fd.get('gender'),is_enabled:fd.get('is_enabled')==='true',is_injured:e.target.is_injured.checked,status:'activo'};
-    let id=row?.id;
-    if(row){ const {error}=await supabase.from('students').update(payload).eq('id',id); if(error){toast(error.message,'error');return;} }
-    else { const {data,error}=await supabase.from('students').insert({...payload,created_by:profile.id,created_by_role:'administrativo'}).select('id').single(); if(error){toast(error.message,'error');return;} id=data.id; }
-    const teamIds=[...e.target.teams.selectedOptions].map(o=>o.value); const {error:teamErr}=await supabase.rpc('admin_set_student_teams',{p_student_id:id,p_team_ids:teamIds}); if(teamErr){toast(teamErr.message,'error');return;}
-    closeModal(); toast('Jugador guardado'); renderPlayers();
+    e.preventDefault();
+
+    const form=e.currentTarget;
+    const submitButton=form.querySelector('button[type="submit"]');
+    const fd=new FormData(form);
+    const dni=String(fd.get('dni')||'').replace(/\D/g,'');
+
+    if(!dni){
+      toast('Ingresá un DNI válido.','error');
+      form.dni.focus();
+      return;
+    }
+
+    const payload={
+      first_name:String(fd.get('first_name')||'').trim(),
+      last_name:String(fd.get('last_name')||'').trim(),
+      dni,
+      birth_date:fd.get('birth_date'),
+      gender:fd.get('gender'),
+      is_enabled:fd.get('is_enabled')==='true',
+      is_injured:form.is_injured.checked,
+      status:'activo'
+    };
+
+    submitButton.disabled=true;
+    const originalLabel=submitButton.textContent;
+    submitButton.textContent='Guardando...';
+
+    try{
+      const {data:existing,error:lookupError}=await supabase
+        .from('students')
+        .select('id,first_name,last_name,dni')
+        .eq('dni',dni)
+        .maybeSingle();
+
+      if(lookupError) throw lookupError;
+
+      if(existing && existing.id!==row?.id){
+        const existingName=[existing.first_name,existing.last_name].filter(Boolean).join(' ');
+        toast(
+          `El DNI ${dni} ya está registrado${existingName? ` para ${existingName}` : ''}. Buscá ese jugador y editá su ficha.`,
+          'error'
+        );
+        form.dni.focus();
+        form.dni.select();
+        return;
+      }
+
+      let id=row?.id;
+
+      if(row){
+        const {error}=await supabase.from('students').update(payload).eq('id',id);
+        if(error) throw error;
+      } else {
+        const {data,error}=await supabase
+          .from('students')
+          .insert({...payload,created_by:profile.id,created_by_role:'administrativo'})
+          .select('id')
+          .single();
+
+        if(error) throw error;
+        id=data.id;
+      }
+
+      const teamIds=[...form.teams.selectedOptions].map(o=>o.value);
+      const {error:teamErr}=await supabase.rpc('admin_set_student_teams',{
+        p_student_id:id,
+        p_team_ids:teamIds
+      });
+
+      if(teamErr) throw teamErr;
+
+      closeModal();
+      toast(row?'Jugador actualizado correctamente':'Jugador creado correctamente');
+      await renderPlayers();
+    }catch(ex){
+      console.error('SAVE PLAYER ERROR:',ex);
+      toast(ex?.message||'No pudimos guardar el jugador.','error');
+    }finally{
+      if(submitButton?.isConnected){
+        submitButton.disabled=false;
+        submitButton.textContent=originalLabel;
+      }
+    }
   };
 }
 
