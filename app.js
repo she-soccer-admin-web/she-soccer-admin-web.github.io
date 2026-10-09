@@ -1125,8 +1125,103 @@ async function openPaymentReview(row){
   }
 }
 
-async function renderConcepts(){const {data,error}=await supabase.rpc('admin_finance_get_settings',{});if(error)throw error;const d=data||{};content.innerHTML=`<div class="grid-3"><div class="card"><div class="card-head"><h3>Actividades</h3><button class="btn primary small" id="newActivity">+ Agregar</button></div>${(d.activities||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.amount)} · día ${x.billing_day}</span><button class="btn light small edit-activity" data-id="${x.id}">Editar</button></div>`).join('')}</div><div class="card"><div class="card-head"><h3>Descuentos</h3><button class="btn primary small" id="newDiscount">+ Agregar</button></div><div class="kpi-line"><span>SIN DESCUENTO</span><strong>0%</strong></div>${(d.discounts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)}</span><button class="btn light small edit-discount" data-id="${x.id}">${x.percentage}% · Editar</button></div>`).join('')}</div><div class="card"><div class="card-head"><h3>Otros conceptos</h3><button class="btn primary small" id="newExtra">+ Agregar</button></div>${(d.concepts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.default_amount)}</span><button class="btn light small edit-extra" data-id="${x.id}">Editar</button></div>`).join('')}</div></div>`;
-  $('#newActivity').onclick=()=>editConceptItem('activity');$('#newDiscount').onclick=()=>editConceptItem('discount');$('#newExtra').onclick=()=>editConceptItem('extra');$$('.edit-activity').forEach(b=>b.onclick=()=>editConceptItem('activity',(d.activities||[]).find(x=>x.id===b.dataset.id)));$$('.edit-discount').forEach(b=>b.onclick=()=>editConceptItem('discount',(d.discounts||[]).find(x=>x.id===b.dataset.id)));$$('.edit-extra').forEach(b=>b.onclick=()=>editConceptItem('extra',(d.concepts||[]).find(x=>x.id===b.dataset.id)));
+async function renderConcepts(){
+  const [financeResult,paymentSettingsResult]=await Promise.all([
+    supabase.rpc('admin_finance_get_settings',{}),
+    supabase.rpc('admin_finance_get_payment_settings',{})
+  ]);
+  if(financeResult.error) throw financeResult.error;
+  if(paymentSettingsResult.error) throw paymentSettingsResult.error;
+
+  const d=financeResult.data||{};
+  const ps=paymentSettingsResult.data||{};
+
+  content.innerHTML=`
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-head"><h3>Actividades</h3><button class="btn primary small" id="newActivity">+ Agregar</button></div>
+        ${(d.activities||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.amount)} · día ${x.billing_day}</span><button class="btn light small edit-activity" data-id="${x.id}">Editar</button></div>`).join('')}
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Descuentos</h3><button class="btn primary small" id="newDiscount">+ Agregar</button></div>
+        <div class="kpi-line"><span>SIN DESCUENTO</span><strong>0%</strong></div>
+        ${(d.discounts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)}</span><button class="btn light small edit-discount" data-id="${x.id}">${x.percentage}% · Editar</button></div>`).join('')}
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Otros conceptos</h3><button class="btn primary small" id="newExtra">+ Agregar</button></div>
+        ${(d.concepts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.default_amount)}</span><button class="btn light small edit-extra" data-id="${x.id}">Editar</button></div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="card-head">
+        <div>
+          <h3>Configuración de pagos</h3>
+          <div class="card-sub">Datos que verá el adulto responsable al momento de pagar</div>
+        </div>
+      </div>
+
+      <form id="paymentSettingsForm" class="form-grid">
+        <label class="span-2" style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" name="installments_enabled" ${ps.installments_enabled?'checked':''} style="width:auto">
+          Habilitar opción “Pago en cuotas”
+        </label>
+
+        <label class="span-2">Link de pago en cuotas
+          <input name="installments_url" placeholder="https://..." value="${esc(ps.installments_url||'')}">
+        </label>
+
+        <label>Banco
+          <input name="bank_name" value="${esc(ps.bank_name||'')}">
+        </label>
+
+        <label>Titular de la cuenta
+          <input name="account_holder" value="${esc(ps.account_holder||'')}">
+        </label>
+
+        <label>CUIT
+          <input name="tax_id" value="${esc(ps.tax_id||'')}">
+        </label>
+
+        <label>Alias
+          <input name="alias" value="${esc(ps.alias||'')}">
+        </label>
+
+        <label class="span-2">CBU
+          <input name="cbu" value="${esc(ps.cbu||'')}">
+        </label>
+
+        <div class="form-actions span-2">
+          <button class="btn primary">Guardar configuración de pagos</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  $('#newActivity').onclick=()=>editConceptItem('activity');
+  $('#newDiscount').onclick=()=>editConceptItem('discount');
+  $('#newExtra').onclick=()=>editConceptItem('extra');
+  $$('.edit-activity').forEach(b=>b.onclick=()=>editConceptItem('activity',(d.activities||[]).find(x=>x.id===b.dataset.id)));
+  $$('.edit-discount').forEach(b=>b.onclick=()=>editConceptItem('discount',(d.discounts||[]).find(x=>x.id===b.dataset.id)));
+  $$('.edit-extra').forEach(b=>b.onclick=()=>editConceptItem('extra',(d.concepts||[]).find(x=>x.id===b.dataset.id)));
+
+  $('#paymentSettingsForm').onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    const payload={
+      p_installments_enabled:fd.get('installments_enabled')==='on',
+      p_installments_url:String(fd.get('installments_url')||''),
+      p_bank_name:String(fd.get('bank_name')||''),
+      p_account_holder:String(fd.get('account_holder')||''),
+      p_tax_id:String(fd.get('tax_id')||''),
+      p_alias:String(fd.get('alias')||''),
+      p_cbu:String(fd.get('cbu')||'')
+    };
+    const {error}=await supabase.rpc('admin_finance_update_payment_settings',payload);
+    if(error){toast(error.message,'error');return;}
+    toast('Configuración de pagos guardada');
+    await renderConcepts();
+  };
 }
 function editConceptItem(type,r=null){const map={activity:{title:'actividad',fields:`<label>Nombre<input name="name" required value="${esc(r?.name||'')}"></label><label>Valor mensual<input type="number" step="0.01" name="amount" required value="${r?.amount??''}"></label><label>Día de vencimiento<input type="number" min="1" max="28" name="day" value="${r?.billing_day??10}"></label>`},discount:{title:'descuento',fields:`<label>Nombre<input name="name" required value="${esc(r?.name||'')}"></label><label>Porcentaje<input type="number" min="0.01" max="100" step="0.01" name="percentage" value="${r?.percentage??''}"></label>`},extra:{title:'concepto',fields:`<label>Nombre<input name="name" required value="${esc(r?.name||'')}"></label><label>Valor<input type="number" step="0.01" name="amount" value="${r?.default_amount??''}"></label>`}};const cfg=map[type];openModal(`${r?'Editar':'Nuevo'} ${cfg.title}`,`<form id="conceptForm" class="form-grid">${cfg.fields}<div class="form-actions span-2">${r?'<button type="button" id="deleteConcept" class="btn danger">Eliminar</button>':''}<button type="button" id="cancelModal" class="btn light">Cancelar</button><button class="btn primary">Guardar</button></div></form>`);$('#cancelModal').onclick=closeModal;$('#conceptForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);let fn,p;if(type==='activity'){fn=r?'admin_finance_update_activity':'admin_finance_create_activity';p=r?{p_id:r.id,p_name:fd.get('name'),p_amount:Number(fd.get('amount')),p_billing_day:Number(fd.get('day'))}:{p_name:fd.get('name'),p_amount:Number(fd.get('amount')),p_billing_day:Number(fd.get('day'))};}else if(type==='discount'){fn=r?'admin_finance_update_discount':'admin_finance_create_discount';p=r?{p_id:r.id,p_name:fd.get('name'),p_percentage:Number(fd.get('percentage'))}:{p_name:fd.get('name'),p_percentage:Number(fd.get('percentage'))};}else{fn=r?'admin_finance_update_extra_concept':'admin_finance_create_extra_concept';p=r?{p_id:r.id,p_name:fd.get('name'),p_default_amount:Number(fd.get('amount'))}:{p_name:fd.get('name'),p_default_amount:Number(fd.get('amount'))};}const {error}=await supabase.rpc(fn,p);if(error){toast(error.message,'error');return;}closeModal();toast('Concepto guardado');renderConcepts();};if(r)$('#deleteConcept').onclick=async()=>{if(!confirm('¿Eliminar este concepto para usos futuros? El historial se conserva.'))return;const fn=type==='activity'?'admin_finance_delete_activity':type==='discount'?'admin_finance_delete_discount':'admin_finance_delete_extra_concept';const {error}=await supabase.rpc(fn,{p_id:r.id});if(error){toast(error.message,'error');return;}closeModal();toast('Concepto eliminado');renderConcepts();};}
 
