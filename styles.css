@@ -66,7 +66,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 .commitment-status{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:7px 10px;font-size:10px;font-weight:900;letter-spacing:.02em;white-space:nowrap}
 .commitment-status.present{background:#e9f8ef;color:#15783c;border:1px solid #b9e5c8}
 .commitment-status.absent{background:#fff0f0;color:#b42318;border:1px solid #f2b8b5}
-.commitment-status.injured{background:#fff4e8;color:#a15c00;border:1px solid #f0cf9e}
+.commitment-status.injured{background:#fdeaea;color:#bb1d1d;border:1px solid #f2b8b5}
 .commitment-status.called{background:#efe7f8;color:var(--brand);border:1px solid #d8c5ec}
 .commitment-status.not-called{background:#f4f4f5;color:#5d5d63;border:1px solid #dddddf}
 .commitment-status.neutral{background:#f4f4f5;color:#666;border:1px solid #ddd}
@@ -85,3 +85,6 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
   .commitment-mini-summary{grid-template-columns:1fr}
   .commitment-match-top{flex-direction:column}
 }
+
+input[name="is_injured"]{accent-color:var(--red)}
+.switch input.injured{accent-color:var(--red)}
