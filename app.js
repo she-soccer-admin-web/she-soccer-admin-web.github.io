@@ -1,6 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import Chart from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/auto/+esm';
-import { renderFilesTools } from './files-tools.js?v=20261013-files-v1';
+import { renderFilesTools } from './files-tools.js?v=20261013-files-v2';
 
 const SUPABASE_URL = 'https://qgwfzutqyownkzfefofi.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_qvFDNxwQvTOlCDI9HVlf8g_nmlZ7O7P';
