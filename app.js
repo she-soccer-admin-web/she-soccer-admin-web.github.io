@@ -238,13 +238,92 @@ async function renderDashboard(){
   charts.push(new Chart($('#expenseChart'),{type:'doughnut',data:{labels:cats.map(x=>x.category),datasets:[{data:cats.map(x=>x.amount),backgroundColor:['#5A3686','#8a6aaa','#b497cc','#E1CADB','#302436','#9b6b83','#c6a7b9']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}}));
 }
 
-async function renderPlayers(search=''){
-  const {data,error}=await supabase.rpc('admin_get_students_page',{p_search:search,p_filter:'all',p_limit:100,p_offset:0});
-  if(error) throw error; const rows=data?.items||[];
-  content.innerHTML=`<div class="toolbar"><input id="playerSearch" class="grow" placeholder="Buscar por DNI, nombre o apellido" value="${esc(search)}"><button class="btn primary" id="newPlayer">+ Nuevo jugador</button></div>
-    <div class="metrics"><div class="metric"><div class="label">Total</div><div class="value">${data?.total_count||0}</div></div><div class="metric"><div class="label">Sin equipo</div><div class="value">${data?.sin_equipo_count||0}</div></div></div>
-    <div class="table-wrap"><table class="data-table"><thead><tr><th>Jugador</th><th>DNI</th><th>Nacimiento</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td><td>${esc(r.dni)}</td><td>${dateLabel(r.birth_date)}</td><td>${activeStatus(r)}</td><td><div class="actions"><button class="btn light small edit-player" data-id="${r.id}">Editar</button><button class="btn light small account-player" data-id="${r.id}">Cuenta</button></div></td></tr>`).join('')}</tbody></table></div>`;
-  let timer; $('#playerSearch').oninput=e=>{clearTimeout(timer);timer=setTimeout(()=>renderPlayers(e.target.value.trim()),300)};
+async function renderPlayers(search='',filters={}){
+  const debtMinRaw=filters?.debtMin;
+  const debtMaxRaw=filters?.debtMax;
+  const trainingDay=String(filters?.trainingDay||'').trim().toLowerCase();
+  const debtMin=debtMinRaw===''||debtMinRaw===null||debtMinRaw===undefined?null:Number(debtMinRaw);
+  const debtMax=debtMaxRaw===''||debtMaxRaw===null||debtMaxRaw===undefined?null:Number(debtMaxRaw);
+
+  const {data,error}=await supabase.rpc('admin_get_students_overview',{
+    p_search:search,
+    p_debt_min:Number.isFinite(debtMin)?debtMin:null,
+    p_debt_max:Number.isFinite(debtMax)?debtMax:null,
+    p_training_day:trainingDay,
+    p_limit:100,
+    p_offset:0
+  });
+
+  if(error) throw error;
+  const rows=data?.items||[];
+  const dayNames={
+    lunes:'Lunes',
+    martes:'Martes',
+    miercoles:'Miércoles',
+    miércoles:'Miércoles',
+    jueves:'Jueves',
+    viernes:'Viernes',
+    sabado:'Sábado',
+    sábado:'Sábado',
+    domingo:'Domingo'
+  };
+  const trainingLabel=row=>{
+    const days=Array.isArray(row?.training_days)?row.training_days.filter(Boolean):[];
+    if(!days.length) return '<span class="muted">SIN DEFINIR</span>';
+    return days.map(d=>esc(dayNames[String(d).toLowerCase()]||String(d))).join(' · ');
+  };
+
+  content.innerHTML=`<div class="toolbar">
+      <input id="playerSearch" class="grow" placeholder="Buscar por DNI, nombre o apellido" value="${esc(search)}">
+      <button class="btn primary" id="newPlayer">+ Nuevo jugador</button>
+    </div>
+    <div class="toolbar" style="margin-top:10px">
+      <input id="debtMinFilter" type="number" min="0" step="1" placeholder="Deuda mínima $" value="${debtMinRaw??''}">
+      <input id="debtMaxFilter" type="number" min="0" step="1" placeholder="Deuda máxima $" value="${debtMaxRaw??''}">
+      <select id="trainingDayFilter">
+        <option value="" ${!trainingDay?'selected':''}>Todos los días de entrenamiento</option>
+        <option value="lunes" ${trainingDay==='lunes'?'selected':''}>Lunes</option>
+        <option value="martes" ${trainingDay==='martes'?'selected':''}>Martes</option>
+        <option value="miercoles" ${trainingDay==='miercoles'?'selected':''}>Miércoles</option>
+        <option value="jueves" ${trainingDay==='jueves'?'selected':''}>Jueves</option>
+        <option value="viernes" ${trainingDay==='viernes'?'selected':''}>Viernes</option>
+        <option value="sabado" ${trainingDay==='sabado'?'selected':''}>Sábado</option>
+        <option value="domingo" ${trainingDay==='domingo'?'selected':''}>Domingo</option>
+      </select>
+      <button class="btn light" id="clearPlayerFilters">Limpiar filtros</button>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="label">Total</div><div class="value">${data?.total_count||0}</div></div>
+      <div class="metric"><div class="label">Sin equipo</div><div class="value">${data?.sin_equipo_count||0}</div></div>
+    </div>
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Jugador</th><th>DNI</th><th>Nacimiento</th><th>Estado</th><th>Acciones</th><th>Deuda</th><th>Días de entrenamiento</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td>
+        <td>${esc(r.dni)}</td>
+        <td>${dateLabel(r.birth_date)}</td>
+        <td>${activeStatus(r)}</td>
+        <td><div class="actions"><button class="btn light small edit-player" data-id="${r.id}">Editar</button><button class="btn light small account-player" data-id="${r.id}">Cuenta</button></div></td>
+        <td class="${Number(r.debt||0)>0?'money negative':'money positive'}">${Number(r.debt||0)>0?money(r.debt):'SIN DEUDA'}</td>
+        <td>${trainingLabel(r)}</td>
+      </tr>`).join('')||'<tr><td colspan="7" class="empty">No hay jugadores que coincidan con los filtros.</td></tr>'}</tbody>
+    </table></div>`;
+
+  const currentFilters=()=>({
+    debtMin:$('#debtMinFilter')?.value??'',
+    debtMax:$('#debtMaxFilter')?.value??'',
+    trainingDay:$('#trainingDayFilter')?.value??''
+  });
+
+  let timer;
+  $('#playerSearch').oninput=e=>{
+    clearTimeout(timer);
+    timer=setTimeout(()=>renderPlayers(e.target.value.trim(),currentFilters()),300);
+  };
+  $('#debtMinFilter').onchange=()=>renderPlayers($('#playerSearch').value.trim(),currentFilters());
+  $('#debtMaxFilter').onchange=()=>renderPlayers($('#playerSearch').value.trim(),currentFilters());
+  $('#trainingDayFilter').onchange=()=>renderPlayers($('#playerSearch').value.trim(),currentFilters());
+  $('#clearPlayerFilters').onclick=()=>renderPlayers($('#playerSearch').value.trim(),{});
   $('#newPlayer').onclick=()=>editPlayer();
   $$('.edit-player').forEach(b=>b.onclick=()=>editPlayer(rows.find(r=>r.id===b.dataset.id)));
   $$('.account-player').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
