@@ -72,8 +72,9 @@ async function uploadTemplate(ctx,file){
   const bucket='medical-files'; const path=`templates/${Date.now()}-${safeName(file.name)}`;
   const {error:upErr}=await supabase.storage.from(bucket).upload(path,file,{upsert:false,contentType:file.type||undefined}); if(upErr) throw upErr;
   try{
-    const {error:offErr}=await supabase.from('medical_form_templates').update({is_active:false}).eq('is_active',true); if(offErr) throw offErr;
-    const {error:insErr}=await supabase.from('medical_form_templates').insert({storage_ref:`storage://${bucket}/${path}`,file_name:file.name,mime_type:file.type||null,is_active:true,uploaded_by:profile?.id||null}); if(insErr) throw insErr;
+    const {data:newRow,error:insErr}=await supabase.from('medical_form_templates').insert({storage_ref:`storage://${bucket}/${path}`,file_name:file.name,mime_type:file.type||null,is_active:true,uploaded_by:profile?.id||null}).select('id').single(); if(insErr) throw insErr;
+    const {error:offErr}=await supabase.from('medical_form_templates').update({is_active:false}).eq('is_active',true).neq('id',newRow.id);
+    if(offErr){ await supabase.from('medical_form_templates').delete().eq('id',newRow.id); throw offErr; }
   }catch(e){ await supabase.storage.from(bucket).remove([path]); throw e; }
 }
 async function downloadPrivate(ctx,reference,name){
