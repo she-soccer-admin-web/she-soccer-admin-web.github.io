@@ -1,6 +1,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import Chart from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/auto/+esm';
 import { renderFilesTools } from './files-tools.js?v=20261013-files-v3';
+import { renderConceptsTools } from './concepts-tools.js?v=20261013-training-v1';
 
 const SUPABASE_URL = 'https://qgwfzutqyownkzfefofi.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_qvFDNxwQvTOlCDI9HVlf8g_nmlZ7O7P';
@@ -1212,104 +1213,16 @@ async function openPaymentReview(row){
 }
 
 async function renderConcepts(){
-  const [financeResult,paymentSettingsResult]=await Promise.all([
-    supabase.rpc('admin_finance_get_settings',{}),
-    supabase.rpc('admin_finance_get_payment_settings',{})
-  ]);
-  if(financeResult.error) throw financeResult.error;
-  if(paymentSettingsResult.error) throw paymentSettingsResult.error;
-
-  const d=financeResult.data||{};
-  const ps=paymentSettingsResult.data||{};
-
-  content.innerHTML=`
-    <div class="grid-3">
-      <div class="card">
-        <div class="card-head"><h3>Actividades</h3><button class="btn primary small" id="newActivity">+ Agregar</button></div>
-        ${(d.activities||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.amount)} · día ${x.billing_day}</span><button class="btn light small edit-activity" data-id="${x.id}">Editar</button></div>`).join('')}
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Descuentos</h3><button class="btn primary small" id="newDiscount">+ Agregar</button></div>
-        <div class="kpi-line"><span>SIN DESCUENTO</span><strong>0%</strong></div>
-        ${(d.discounts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)}</span><button class="btn light small edit-discount" data-id="${x.id}">${x.percentage}% · Editar</button></div>`).join('')}
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Otros conceptos</h3><button class="btn primary small" id="newExtra">+ Agregar</button></div>
-        ${(d.concepts||[]).map(x=>`<div class="kpi-line"><span>${esc(x.name)} · ${money(x.default_amount)}</span><button class="btn light small edit-extra" data-id="${x.id}">Editar</button></div>`).join('')}
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:18px">
-      <div class="card-head">
-        <div>
-          <h3>Configuración de pagos</h3>
-          <div class="card-sub">Datos que verá el adulto responsable al momento de pagar</div>
-        </div>
-      </div>
-
-      <form id="paymentSettingsForm" class="form-grid">
-        <label class="span-2" style="display:flex;align-items:center;gap:10px">
-          <input type="checkbox" name="installments_enabled" ${ps.installments_enabled?'checked':''} style="width:auto">
-          Habilitar opción “Pago en cuotas”
-        </label>
-
-        <label class="span-2">Link de pago en cuotas
-          <input name="installments_url" placeholder="https://..." value="${esc(ps.installments_url||'')}">
-        </label>
-
-        <label>Banco
-          <input name="bank_name" value="${esc(ps.bank_name||'')}">
-        </label>
-
-        <label>Titular de la cuenta
-          <input name="account_holder" value="${esc(ps.account_holder||'')}">
-        </label>
-
-        <label>CUIT
-          <input name="tax_id" value="${esc(ps.tax_id||'')}">
-        </label>
-
-        <label>Alias
-          <input name="alias" value="${esc(ps.alias||'')}">
-        </label>
-
-        <label class="span-2">CBU
-          <input name="cbu" value="${esc(ps.cbu||'')}">
-        </label>
-
-        <div class="form-actions span-2">
-          <button class="btn primary">Guardar configuración de pagos</button>
-        </div>
-      </form>
-    </div>
-  `;
-
-  $('#newActivity').onclick=()=>editConceptItem('activity');
-  $('#newDiscount').onclick=()=>editConceptItem('discount');
-  $('#newExtra').onclick=()=>editConceptItem('extra');
-  $$('.edit-activity').forEach(b=>b.onclick=()=>editConceptItem('activity',(d.activities||[]).find(x=>x.id===b.dataset.id)));
-  $$('.edit-discount').forEach(b=>b.onclick=()=>editConceptItem('discount',(d.discounts||[]).find(x=>x.id===b.dataset.id)));
-  $$('.edit-extra').forEach(b=>b.onclick=()=>editConceptItem('extra',(d.concepts||[]).find(x=>x.id===b.dataset.id)));
-
-  $('#paymentSettingsForm').onsubmit=async e=>{
-    e.preventDefault();
-    const fd=new FormData(e.target);
-    const payload={
-      p_installments_enabled:fd.get('installments_enabled')==='on',
-      p_installments_url:String(fd.get('installments_url')||''),
-      p_bank_name:String(fd.get('bank_name')||''),
-      p_account_holder:String(fd.get('account_holder')||''),
-      p_tax_id:String(fd.get('tax_id')||''),
-      p_alias:String(fd.get('alias')||''),
-      p_cbu:String(fd.get('cbu')||'')
-    };
-    const {error}=await supabase.rpc('admin_finance_update_payment_settings',payload);
-    if(error){toast(error.message,'error');return;}
-    toast('Configuración de pagos guardada');
-    await renderConcepts();
-  };
+  return renderConceptsTools({
+    content,
+    supabase,
+    toast,
+    esc,
+    money,
+    openModal,
+    closeModal
+  });
 }
-function editConceptItem(type,r=null){const map={activity:{title:'actividad',fields:`<label>Nombre<input name="name" required value="${esc(r?.name||'')}"></label><label>Valor mensual<input type="number" step="0.01" name="amount" required value="${r?.amount??''}"></label><label>Día de vencimiento<input type="number" min="1" max="28" name="day" value="${r?.billing_day??10}"></label>`},discount:{title:'descuento',fields:`<label>Nombre<input name="name" required value="${esc(r?.name||'')}"></label><label>Porcentaje<input type="number" min="0.01" max="100" step="0.01" name="percentage" value="${r?.percentage??''}"></label>`},extra:{title:'concepto',fields:`<label>Nombre<input name="name" required value="${esc(r?.name||'')}"></label><label>Valor<input type="number" step="0.01" name="amount" value="${r?.default_amount??''}"></label>`}};const cfg=map[type];openModal(`${r?'Editar':'Nuevo'} ${cfg.title}`,`<form id="conceptForm" class="form-grid">${cfg.fields}<div class="form-actions span-2">${r?'<button type="button" id="deleteConcept" class="btn danger">Eliminar</button>':''}<button type="button" id="cancelModal" class="btn light">Cancelar</button><button class="btn primary">Guardar</button></div></form>`);$('#cancelModal').onclick=closeModal;$('#conceptForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);let fn,p;if(type==='activity'){fn=r?'admin_finance_update_activity':'admin_finance_create_activity';p=r?{p_id:r.id,p_name:fd.get('name'),p_amount:Number(fd.get('amount')),p_billing_day:Number(fd.get('day'))}:{p_name:fd.get('name'),p_amount:Number(fd.get('amount')),p_billing_day:Number(fd.get('day'))};}else if(type==='discount'){fn=r?'admin_finance_update_discount':'admin_finance_create_discount';p=r?{p_id:r.id,p_name:fd.get('name'),p_percentage:Number(fd.get('percentage'))}:{p_name:fd.get('name'),p_percentage:Number(fd.get('percentage'))};}else{fn=r?'admin_finance_update_extra_concept':'admin_finance_create_extra_concept';p=r?{p_id:r.id,p_name:fd.get('name'),p_default_amount:Number(fd.get('amount'))}:{p_name:fd.get('name'),p_default_amount:Number(fd.get('amount'))};}const {error}=await supabase.rpc(fn,p);if(error){toast(error.message,'error');return;}closeModal();toast('Concepto guardado');renderConcepts();};if(r)$('#deleteConcept').onclick=async()=>{if(!confirm('¿Eliminar este concepto para usos futuros? El historial se conserva.'))return;const fn=type==='activity'?'admin_finance_delete_activity':type==='discount'?'admin_finance_delete_discount':'admin_finance_delete_extra_concept';const {error}=await supabase.rpc(fn,{p_id:r.id});if(error){toast(error.message,'error');return;}closeModal();toast('Concepto eliminado');renderConcepts();};}
 
 async function renderExpenses(){const {data,error}=await supabase.rpc('admin_expenses_list',{p_limit:200,p_offset:0,p_from:null,p_to:null,p_category:null});if(error)throw new Error('Falta ejecutar el SQL web de gastos y balances.');const rows=data?.items||[];content.innerHTML=`<div class="toolbar"><button id="newExpense" class="btn primary">+ Registrar gasto</button></div><div class="metrics"><div class="metric red"><div class="label">Total mostrado</div><div class="value">${money(rows.reduce((a,b)=>a+Number(b.amount||0),0))}</div></div><div class="metric"><div class="label">Movimientos</div><div class="value">${rows.length}</div></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Proveedor</th><th>Forma</th><th>Importe</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${dateLabel(r.expense_date)}</td><td>${statusBadge(r.category,'purple')}</td><td class="name-cell">${esc(r.description)}</td><td>${esc(r.supplier||'-')}</td><td>${esc(r.payment_method||'-')}</td><td class="money negative">${money(r.amount)}</td><td><button class="btn light small edit-expense" data-id="${r.id}">Editar</button></td></tr>`).join('')}</tbody></table></div>`;$('#newExpense').onclick=()=>editExpense();$$('.edit-expense').forEach(b=>b.onclick=()=>editExpense(rows.find(r=>r.id===b.dataset.id)));}
 function editExpense(r=null){const cats=['Alquiler','Sueldos','Servicios','Indumentaria','Material deportivo','Mantenimiento','Torneos y ligas','Transporte','Publicidad','Impuestos','Otros'];openModal(r?'Editar gasto':'Registrar gasto',`<form id="expenseForm" class="form-grid"><label>Fecha<input type="date" name="date" required value="${esc(r?.expense_date||new Date().toISOString().slice(0,10))}"></label><label>Categoría<select name="category">${cats.map(c=>`<option ${r?.category===c?'selected':''}>${c}</option>`).join('')}</select></label><label class="span-2">Descripción<input name="description" required value="${esc(r?.description||'')}"></label><label>Proveedor<input name="supplier" value="${esc(r?.supplier||'')}"></label><label>Forma de pago<select name="method"><option value="transferencia" ${r?.payment_method==='transferencia'?'selected':''}>Transferencia</option><option value="efectivo" ${r?.payment_method==='efectivo'?'selected':''}>Efectivo</option><option value="tarjeta" ${r?.payment_method==='tarjeta'?'selected':''}>Tarjeta</option><option value="otro" ${r?.payment_method==='otro'?'selected':''}>Otro</option></select></label><label>Importe<input type="number" step="0.01" name="amount" required value="${r?.amount??''}"></label><label class="span-2">Notas<textarea name="notes" rows="3">${esc(r?.notes||'')}</textarea></label><div class="form-actions span-2">${r?'<button type="button" id="deleteExpense" class="btn danger">Eliminar</button>':''}<button type="button" id="cancelModal" class="btn light">Cancelar</button><button class="btn primary">Guardar gasto</button></div></form>`);$('#cancelModal').onclick=closeModal;$('#expenseForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const {error}=await supabase.rpc('admin_expense_save',{p_expense_id:r?.id||null,p_expense_date:fd.get('date'),p_category:fd.get('category'),p_description:fd.get('description'),p_amount:Number(fd.get('amount')),p_payment_method:fd.get('method'),p_supplier:fd.get('supplier'),p_notes:fd.get('notes')});if(error){toast(error.message,'error');return;}closeModal();toast('Gasto guardado');renderExpenses();};if(r)$('#deleteExpense').onclick=async()=>{if(!confirm('¿Eliminar este gasto?'))return;const {error}=await supabase.rpc('admin_expense_delete',{p_expense_id:r.id});if(error){toast(error.message,'error');return;}closeModal();toast('Gasto eliminado');renderExpenses();};}
