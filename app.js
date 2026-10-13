@@ -1,5 +1,6 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import Chart from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/auto/+esm';
+import { renderFilesTools } from './files-tools.js?v=20261013-files-v1';
 
 const SUPABASE_URL = 'https://qgwfzutqyownkzfefofi.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_qvFDNxwQvTOlCDI9HVlf8g_nmlZ7O7P';
@@ -1236,7 +1237,18 @@ function editExpense(r=null){const cats=['Alquiler','Sueldos','Servicios','Indum
 
 async function renderBalances(){const {data,error}=await supabase.rpc('admin_web_financial_dashboard',{p_months:12});if(error)throw error;const d=data||{},k=d.kpis||{},months=d.monthly||[];content.innerHTML=`<div class="metrics"><div class="metric green"><div class="label">Ingresos período</div><div class="value">${money(k.income_period)}</div></div><div class="metric red"><div class="label">Egresos período</div><div class="value">${money(k.expenses_period)}</div></div><div class="metric brand"><div class="label">Resultado</div><div class="value">${money(k.net_period)}</div></div><div class="metric"><div class="label">Margen</div><div class="value">${Number(k.margin_pct||0).toLocaleString('es-AR',{maximumFractionDigits:1})}%</div></div></div><div class="grid-2"><div class="card"><h3>Resultado mensual</h3><div class="chart-wrap"><canvas id="balanceBar"></canvas></div></div><div class="card"><h3>Ingresos, gastos y resultado</h3><div class="chart-wrap"><canvas id="balanceLine"></canvas></div></div></div><div class="grid-2" style="margin-top:18px"><div class="card"><h3>Gastos por categoría</h3><div class="chart-wrap small"><canvas id="balanceExpenseCat"></canvas></div></div><div class="card"><h3>Lectura del negocio</h3><div class="kpi-line"><span>Promedio ingreso mensual</span><strong>${money(k.avg_income_month)}</strong></div><div class="kpi-line"><span>Promedio gasto mensual</span><strong>${money(k.avg_expenses_month)}</strong></div><div class="kpi-line"><span>Deuda total vencida</span><strong>${money(k.total_debt)}</strong></div><div class="kpi-line"><span>Ingreso mensual esperado</span><strong>${money(k.expected_monthly)}</strong></div><div class="kpi-line"><span>Resultado promedio mensual</span><strong>${money(Number(k.avg_income_month||0)-Number(k.avg_expenses_month||0))}</strong></div></div></div>`;charts.push(new Chart($('#balanceBar'),{type:'bar',data:{labels:months.map(x=>x.label),datasets:[{label:'Ingresos',data:months.map(x=>x.income),backgroundColor:'#5A3686'},{label:'Gastos',data:months.map(x=>x.expenses),backgroundColor:'#d6b9cb'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}}));charts.push(new Chart($('#balanceLine'),{type:'line',data:{labels:months.map(x=>x.label),datasets:[{label:'Resultado',data:months.map(x=>x.net),borderColor:'#168A39',backgroundColor:'rgba(22,138,57,.12)',fill:true,tension:.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}}));const cats=d.expense_categories||[];charts.push(new Chart($('#balanceExpenseCat'),{type:'bar',data:{labels:cats.map(x=>x.category),datasets:[{label:'Gastos',data:cats.map(x=>x.amount),backgroundColor:'#5A3686'}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}}));}
 
-async function renderFiles(){content.innerHTML=`<div class="grid-2"><div class="card"><h3>Modelo de ficha médica</h3><p class="section-note">El módulo móvil ya administra el modelo y las fichas médicas privadas. En la próxima iteración web incorporaremos carga, descarga y reemplazo desde navegador manteniendo el mismo Storage privado.</p><button class="btn primary" onclick="document.querySelector('[data-section=players]').click()">Ver jugadores</button></div><div class="card"><h3>Archivos e importaciones</h3><p class="section-note">La primera versión preserva las operaciones sensibles de importación/exportación en la app. El panel ya queda preparado para integrarlas en la siguiente actualización.</p></div></div>`;}
+async function renderFiles(){
+  return renderFilesTools({
+    supabase,
+    content,
+    profile,
+    catalogs,
+    toast,
+    esc,
+    openModal,
+    closeModal
+  });
+}
 
 (async function boot(){
   try{ if(await verifyAdmin()) await showApp(); else { await supabase.auth.signOut(); loginView.classList.remove('hidden'); appView.classList.add('hidden'); } }
