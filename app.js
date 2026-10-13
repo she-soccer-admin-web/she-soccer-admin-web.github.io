@@ -1149,6 +1149,17 @@ async function openPaymentReview(row){
               `).join(''):`<div class="kpi-line"><span>${esc(item.concept||'Pago informado')}</span><strong>${money(item.amount)}</strong></div>`}
             </div>
 
+            ${(item.training||[]).length?`
+              <div class="review-section-title">Entrenamiento</div>
+              <div class="review-items">
+                ${(item.training||[]).map(t=>`
+                  <div class="kpi-line">
+                    <span>${(t.days||[]).map(d=>esc(String(d).charAt(0).toUpperCase()+String(d).slice(1))).join(' / ')}${t.venue_name?` · ${esc(t.venue_name)}`:''}</span>
+                  </div>
+                `).join('')}
+              </div>
+            `:''}
+
             <div class="review-section-title">Comprobantes</div>
             <div class="proof-buttons">
               ${(item.files||[]).length?(item.files||[]).map((file,index)=>`
