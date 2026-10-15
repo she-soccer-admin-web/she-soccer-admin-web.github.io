@@ -240,34 +240,48 @@ async function renderDashboard(){
 }
 
 async function renderPlayers(search='',filters={}){
-  const debtMinRaw=filters?.debtMin;
-  const debtMaxRaw=filters?.debtMax;
-  const trainingDay=String(filters?.trainingDay||'').trim().toLowerCase();
-  const debtMin=debtMinRaw===''||debtMinRaw===null||debtMinRaw===undefined?null:Number(debtMinRaw);
-  const debtMax=debtMaxRaw===''||debtMaxRaw===null||debtMaxRaw===undefined?null:Number(debtMaxRaw);
+  const filterState={
+    teamId:String(filters?.teamId||''),
+    enabled:String(filters?.enabled||''),
+    injury:String(filters?.injury||''),
+    debt:String(filters?.debt||''),
+    trainingDay:String(filters?.trainingDay||'').trim().toLowerCase(),
+    venueId:String(filters?.venueId||'')
+  };
 
-  const {data,error}=await supabase.rpc('admin_get_students_overview',{
-    p_search:search,
-    p_debt_min:Number.isFinite(debtMin)?debtMin:null,
-    p_debt_max:Number.isFinite(debtMax)?debtMax:null,
-    p_training_day:trainingDay,
-    p_limit:100,
-    p_offset:0
-  });
+  const [overviewResult,settingsResult]=await Promise.all([
+    supabase.rpc('admin_get_students_overview_v2',{
+      p_search:search,
+      p_team_id:filterState.teamId||null,
+      p_enabled:filterState.enabled,
+      p_injury:filterState.injury,
+      p_debt:filterState.debt,
+      p_training_day:filterState.trainingDay,
+      p_venue_id:filterState.venueId||null,
+      p_limit:100,
+      p_offset:0
+    }),
+    supabase.rpc('admin_finance_get_settings',{})
+  ]);
 
-  if(error) throw error;
+  if(overviewResult.error) throw overviewResult.error;
+  if(settingsResult.error) throw settingsResult.error;
+
+  const data=overviewResult.data||{};
   const rows=data?.items||[];
+  const venues=settingsResult.data?.venues||[];
+  const teams=catalogs.teams||[];
+  const activeFilters=Object.values(filterState).filter(Boolean).length;
+
   const dayNames={
     lunes:'Lunes',
     martes:'Martes',
     miercoles:'Miércoles',
     miércoles:'Miércoles',
     jueves:'Jueves',
-    viernes:'Viernes',
-    sabado:'Sábado',
-    sábado:'Sábado',
-    domingo:'Domingo'
+    viernes:'Viernes'
   };
+
   const trainingLabel=row=>{
     const days=Array.isArray(row?.training_days)?row.training_days.filter(Boolean):[];
     if(!days.length) return '<span class="muted">SIN DEFINIR</span>';
@@ -276,25 +290,12 @@ async function renderPlayers(search='',filters={}){
 
   content.innerHTML=`<div class="toolbar">
       <input id="playerSearch" class="grow" placeholder="Buscar por DNI, nombre o apellido" value="${esc(search)}">
+      <button class="btn light" id="openPlayerFilters">Filtrar${activeFilters?` (${activeFilters})`:''}</button>
       <button class="btn primary" id="newPlayer">+ Nuevo jugador</button>
-    </div>
-    <div class="toolbar" style="margin-top:10px">
-      <input id="debtMinFilter" type="number" min="0" step="1" placeholder="Deuda mínima $" value="${debtMinRaw??''}">
-      <input id="debtMaxFilter" type="number" min="0" step="1" placeholder="Deuda máxima $" value="${debtMaxRaw??''}">
-      <select id="trainingDayFilter">
-        <option value="" ${!trainingDay?'selected':''}>Todos los días de entrenamiento</option>
-        <option value="lunes" ${trainingDay==='lunes'?'selected':''}>Lunes</option>
-        <option value="martes" ${trainingDay==='martes'?'selected':''}>Martes</option>
-        <option value="miercoles" ${trainingDay==='miercoles'?'selected':''}>Miércoles</option>
-        <option value="jueves" ${trainingDay==='jueves'?'selected':''}>Jueves</option>
-        <option value="viernes" ${trainingDay==='viernes'?'selected':''}>Viernes</option>
-        <option value="sabado" ${trainingDay==='sabado'?'selected':''}>Sábado</option>
-        <option value="domingo" ${trainingDay==='domingo'?'selected':''}>Domingo</option>
-      </select>
-      <button class="btn light" id="clearPlayerFilters">Limpiar filtros</button>
     </div>
     <div class="metrics">
       <div class="metric"><div class="label">Total</div><div class="value">${data?.total_count||0}</div></div>
+      <div class="metric"><div class="label">Resultados</div><div class="value">${data?.filtered_count||0}</div></div>
       <div class="metric"><div class="label">Sin equipo</div><div class="value">${data?.sin_equipo_count||0}</div></div>
     </div>
     <div class="table-wrap"><table class="data-table">
@@ -307,24 +308,97 @@ async function renderPlayers(search='',filters={}){
         <td><div class="actions"><button class="btn light small edit-player" data-id="${r.id}">Editar</button><button class="btn light small account-player" data-id="${r.id}">Cuenta</button></div></td>
         <td class="${Number(r.debt||0)>0?'money negative':'money positive'}">${Number(r.debt||0)>0?money(r.debt):'SIN DEUDA'}</td>
         <td>${trainingLabel(r)}</td>
-      </tr>`).join('')||'<tr><td colspan="7" class="empty">No hay jugadores que coincidan con los filtros.</td></tr>'}</tbody>
+      </tr>`).join('')||'<tr><td colspan="7" class="empty">No hay jugadores que coincidan con la búsqueda y los filtros.</td></tr>'}</tbody>
     </table></div>`;
-
-  const currentFilters=()=>({
-    debtMin:$('#debtMinFilter')?.value??'',
-    debtMax:$('#debtMaxFilter')?.value??'',
-    trainingDay:$('#trainingDayFilter')?.value??''
-  });
 
   let timer;
   $('#playerSearch').oninput=e=>{
     clearTimeout(timer);
-    timer=setTimeout(()=>renderPlayers(e.target.value.trim(),currentFilters()),300);
+    timer=setTimeout(()=>renderPlayers(e.target.value.trim(),filterState),300);
   };
-  $('#debtMinFilter').onchange=()=>renderPlayers($('#playerSearch').value.trim(),currentFilters());
-  $('#debtMaxFilter').onchange=()=>renderPlayers($('#playerSearch').value.trim(),currentFilters());
-  $('#trainingDayFilter').onchange=()=>renderPlayers($('#playerSearch').value.trim(),currentFilters());
-  $('#clearPlayerFilters').onclick=()=>renderPlayers($('#playerSearch').value.trim(),{});
+
+  $('#openPlayerFilters').onclick=()=>{
+    openModal('Filtrar jugadores',`
+      <form id="playerFiltersForm" class="form-grid">
+        <label class="span-2">Equipo
+          <select name="teamId">
+            <option value="">Todos los equipos</option>
+            ${teams.map(t=>`<option value="${t.id}" ${filterState.teamId===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}
+          </select>
+        </label>
+
+        <label>Estado
+          <select name="enabled">
+            <option value="" ${!filterState.enabled?'selected':''}>Todos</option>
+            <option value="enabled" ${filterState.enabled==='enabled'?'selected':''}>Habilitados</option>
+            <option value="disabled" ${filterState.enabled==='disabled'?'selected':''}>No habilitados</option>
+          </select>
+        </label>
+
+        <label>Lesión
+          <select name="injury">
+            <option value="" ${!filterState.injury?'selected':''}>Todos</option>
+            <option value="injured" ${filterState.injury==='injured'?'selected':''}>Lesionados</option>
+            <option value="healthy" ${filterState.injury==='healthy'?'selected':''}>Sin lesión</option>
+          </select>
+        </label>
+
+        <label>Deuda
+          <select name="debt">
+            <option value="" ${!filterState.debt?'selected':''}>Todos</option>
+            <option value="with" ${filterState.debt==='with'?'selected':''}>Con deuda</option>
+            <option value="without" ${filterState.debt==='without'?'selected':''}>Sin deuda</option>
+          </select>
+        </label>
+
+        <label>Día de entrenamiento
+          <select name="trainingDay">
+            <option value="" ${!filterState.trainingDay?'selected':''}>Todos los días</option>
+            <option value="lunes" ${filterState.trainingDay==='lunes'?'selected':''}>Lunes</option>
+            <option value="martes" ${filterState.trainingDay==='martes'?'selected':''}>Martes</option>
+            <option value="miercoles" ${filterState.trainingDay==='miercoles'?'selected':''}>Miércoles</option>
+            <option value="jueves" ${filterState.trainingDay==='jueves'?'selected':''}>Jueves</option>
+            <option value="viernes" ${filterState.trainingDay==='viernes'?'selected':''}>Viernes</option>
+          </select>
+        </label>
+
+        <label class="span-2">Sede
+          <select name="venueId">
+            <option value="">Todas las sedes</option>
+            ${venues.map(v=>`<option value="${v.id}" ${filterState.venueId===v.id?'selected':''}>${esc(v.name)}</option>`).join('')}
+          </select>
+        </label>
+
+        <div class="form-actions span-2">
+          <button type="button" class="btn light" id="clearPlayerFilters">Limpiar filtros</button>
+          <button type="button" class="btn light" id="cancelModal">Cancelar</button>
+          <button class="btn primary" type="submit">Aplicar filtros</button>
+        </div>
+      </form>
+    `);
+
+    $('#cancelModal').onclick=closeModal;
+    $('#clearPlayerFilters').onclick=()=>{
+      closeModal();
+      renderPlayers($('#playerSearch')?.value?.trim()||search,{});
+    };
+
+    $('#playerFiltersForm').onsubmit=e=>{
+      e.preventDefault();
+      const fd=new FormData(e.currentTarget);
+      const nextFilters={
+        teamId:String(fd.get('teamId')||''),
+        enabled:String(fd.get('enabled')||''),
+        injury:String(fd.get('injury')||''),
+        debt:String(fd.get('debt')||''),
+        trainingDay:String(fd.get('trainingDay')||''),
+        venueId:String(fd.get('venueId')||'')
+      };
+      closeModal();
+      renderPlayers($('#playerSearch')?.value?.trim()||search,nextFilters);
+    };
+  };
+
   $('#newPlayer').onclick=()=>editPlayer();
   $$('.edit-player').forEach(b=>b.onclick=()=>editPlayer(rows.find(r=>r.id===b.dataset.id)));
   $$('.account-player').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
