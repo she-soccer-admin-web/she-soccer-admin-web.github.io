@@ -2,6 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import Chart from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/auto/+esm';
 import { renderFilesTools } from './files-tools.js?v=20261013-files-v3';
 import { renderConceptsTools } from './concepts-tools.js?v=20261013-training-v1';
+import { renderRegistration2027Tools } from './registration-2027-tools.js?v=20261015-registration-v1';
 
 const SUPABASE_URL = 'https://qgwfzutqyownkzfefofi.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_qvFDNxwQvTOlCDI9HVlf8g_nmlZ7O7P';
@@ -27,7 +28,7 @@ const sectionTitles = {
   dashboard:'Dashboard', players:'Jugadores', teams:'Equipos', matches:'Partidos',
   attendance:'Asistencia', citations:'Citaciones', commitment:'Compromiso', users:'Usuarios',
   leagues:'Ligas', news:'Novedades', sponsors:'Sponsors', benefits:'Beneficios',
-  payments:'Pagos', concepts:'Conceptos', expenses:'Gastos', balances:'Balances', files:'Archivos'
+  payments:'Pagos', concepts:'Conceptos', expenses:'Gastos', balances:'Balances', files:'Archivos', registration2027:'Inscripción 2027'
 };
 
 function friendlyErrorText(message) {
@@ -194,7 +195,7 @@ async function navigate(section){
   $$('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.section===section));
   titleEl.textContent=sectionTitles[section]||section; eyebrowEl.textContent='SHE SOCCER · ADMIN WEB'; loading();
   try{
-    const fn={dashboard:renderDashboard,players:renderPlayers,teams:renderTeams,matches:renderMatches,attendance:renderAttendance,citations:renderCitations,commitment:renderCommitment,users:renderUsers,leagues:renderLeagues,news:renderNews,sponsors:renderSponsors,benefits:renderBenefits,payments:renderPayments,concepts:renderConcepts,expenses:renderExpenses,balances:renderBalances,files:renderFiles}[section];
+    const fn={dashboard:renderDashboard,players:renderPlayers,teams:renderTeams,matches:renderMatches,attendance:renderAttendance,citations:renderCitations,commitment:renderCommitment,users:renderUsers,leagues:renderLeagues,news:renderNews,sponsors:renderSponsors,benefits:renderBenefits,payments:renderPayments,concepts:renderConcepts,expenses:renderExpenses,balances:renderBalances,files:renderFiles,registration2027:renderRegistration2027}[section];
     await (fn||renderDashboard)(); setUpdated();
   }catch(ex){ console.error(ex); content.innerHTML=`<div class="card"><h3>No pudimos cargar esta sección</h3><p class="section-note">${esc(ex.message||ex)}</p></div>`; }
 }
@@ -239,6 +240,17 @@ async function renderDashboard(){
   charts.push(new Chart($('#expenseChart'),{type:'doughnut',data:{labels:cats.map(x=>x.category),datasets:[{data:cats.map(x=>x.amount),backgroundColor:['#5A3686','#8a6aaa','#b497cc','#E1CADB','#302436','#9b6b83','#c6a7b9']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}}));
 }
 
+async function renderRegistration2027(){
+  return renderRegistration2027Tools({
+    content,
+    supabase,
+    toast,
+    esc,
+    dateLabel,
+    statusBadge
+  });
+}
+
 async function renderPlayers(search='',filters={}){
   const filterState={
     teamId:String(filters?.teamId||''),
@@ -249,7 +261,7 @@ async function renderPlayers(search='',filters={}){
     venueId:String(filters?.venueId||'')
   };
 
-  const [overviewResult,settingsResult]=await Promise.all([
+  const [overviewResult,settingsResult,registrationResult]=await Promise.all([
     supabase.rpc('admin_get_students_overview_v2',{
       p_search:search,
       p_team_id:filterState.teamId||null,
@@ -261,16 +273,20 @@ async function renderPlayers(search='',filters={}){
       p_limit:100,
       p_offset:0
     }),
-    supabase.rpc('admin_finance_get_settings',{})
+    supabase.rpc('admin_finance_get_settings',{}),
+    supabase.rpc('admin_registration_2027_get',{})
   ]);
 
   if(overviewResult.error) throw overviewResult.error;
   if(settingsResult.error) throw settingsResult.error;
+  if(registrationResult.error) throw registrationResult.error;
 
   const data=overviewResult.data||{};
   const rows=data?.items||[];
   const venues=settingsResult.data?.venues||[];
   const teams=catalogs.teams||[];
+  const registrationEntries=registrationResult.data?.entries||[];
+  const registrationMap=new Map(registrationEntries.map(x=>[String(x.student_id),x]));
   const activeFilters=Object.values(filterState).filter(Boolean).length;
 
   const dayNames={
@@ -299,7 +315,7 @@ async function renderPlayers(search='',filters={}){
       <div class="metric"><div class="label">Sin equipo</div><div class="value">${data?.sin_equipo_count||0}</div></div>
     </div>
     <div class="table-wrap"><table class="data-table">
-      <thead><tr><th>Jugador</th><th>DNI</th><th>Nacimiento</th><th>Estado</th><th>Acciones</th><th>Deuda</th><th>Días de entrenamiento</th></tr></thead>
+      <thead><tr><th>Jugador</th><th>DNI</th><th>Nacimiento</th><th>Estado</th><th>Acciones</th><th>Deuda</th><th>Días de entrenamiento</th><th>Inscripción 2027</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td>
         <td>${esc(r.dni)}</td>
@@ -308,7 +324,14 @@ async function renderPlayers(search='',filters={}){
         <td><div class="actions"><button class="btn light small edit-player" data-id="${r.id}">Editar</button><button class="btn light small account-player" data-id="${r.id}">Cuenta</button></div></td>
         <td class="${Number(r.debt||0)>0?'money negative':'money positive'}">${Number(r.debt||0)>0?money(r.debt):'SIN DEUDA'}</td>
         <td>${trainingLabel(r)}</td>
-      </tr>`).join('')||'<tr><td colspan="7" class="empty">No hay jugadores que coincidan con la búsqueda y los filtros.</td></tr>'}</tbody>
+        <td>
+          ${(()=>{
+            const reg=registrationMap.get(String(r.id));
+            const confirmed=!!reg?.confirmed_enrolled;
+            return `<button class="btn small ${confirmed?'green':'light'} toggle-registration-2027" data-id="${r.id}" data-confirmed="${confirmed?'true':'false'}">${confirmed?'✓ INSCRIPTO 2027':'Marcar inscripto'}</button>`;
+          })()}
+        </td>
+      </tr>`).join('')||'<tr><td colspan="8" class="empty">No hay jugadores que coincidan con la búsqueda y los filtros.</td></tr>'}</tbody>
     </table></div>`;
 
   let timer;
@@ -401,7 +424,23 @@ async function renderPlayers(search='',filters={}){
 
   $('#newPlayer').onclick=()=>editPlayer();
   $$('.edit-player').forEach(b=>b.onclick=()=>editPlayer(rows.find(r=>r.id===b.dataset.id)));
-  $$('.account-player').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
+  $('.account-player').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
+  $('.toggle-registration-2027').forEach(b=>b.onclick=async()=>{
+    const current=b.dataset.confirmed==='true';
+    b.disabled=true;
+    try{
+      const {error}=await supabase.rpc('admin_registration_2027_set_confirmed',{
+        p_student_id:b.dataset.id,
+        p_confirmed:!current
+      });
+      if(error) throw error;
+      toast(!current?'Jugador marcado como INSCRIPTO 2027':'Se quitó la confirmación 2027');
+      await renderPlayers($('#playerSearch')?.value?.trim()||search,filterState);
+    }catch(ex){
+      toast(ex?.message||'No pudimos actualizar la inscripción 2027.','error');
+      b.disabled=false;
+    }
+  });
 }
 
 async function editPlayer(row=null){
