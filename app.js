@@ -424,8 +424,8 @@ async function renderPlayers(search='',filters={}){
 
   $('#newPlayer').onclick=()=>editPlayer();
   $$('.edit-player').forEach(b=>b.onclick=()=>editPlayer(rows.find(r=>r.id===b.dataset.id)));
-  $('.account-player').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
-  $('.toggle-registration-2027').forEach(b=>b.onclick=async()=>{
+  $$('.account-player').forEach(b=>b.onclick=()=>openPlayerAccount(rows.find(r=>r.id===b.dataset.id)));
+  $$('.toggle-registration-2027').forEach(b=>b.onclick=async()=>{
     const current=b.dataset.confirmed==='true';
     b.disabled=true;
     try{
