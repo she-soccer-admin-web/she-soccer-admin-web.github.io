@@ -1054,7 +1054,137 @@ async function openCommitmentYear(id){
     </div>
   `);
 }
-async function renderUsers(){const {data,error}=await supabase.rpc('admin_get_staff_users_page',{p_search:'',p_limit:100,p_offset:0});if(error)throw error;const rows=Array.isArray(data)?data:[];content.innerHTML=`<div class="card"><h3>Usuarios de administración y entrenamiento</h3><p class="section-note">Primera versión web: consulta centralizada. La edición avanzada de roles y contraseñas sigue disponible en la app y se incorporará al panel.</p></div><div class="table-wrap" style="margin-top:16px"><table class="data-table"><thead><tr><th>Nombre</th><th>DNI</th><th>Email</th><th>Roles</th><th>Equipos</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td><td>${esc(r.dni)}</td><td>${esc(r.email||'-')}</td><td><div class="pill-row">${(r.roles||[r.role]).filter(Boolean).map(x=>`<span class="pill">${esc(x)}</span>`).join('')}</div></td><td>${esc(r.team_names||'-')}</td></tr>`).join('')}</tbody></table></div>`;}
+async function renderUsers(){
+  const {data,error}=await supabase.rpc('admin_get_staff_users_page',{p_search:'',p_limit:100,p_offset:0});
+  if(error) throw error;
+  const rows=Array.isArray(data)?data:[];
+
+  content.innerHTML=`
+    <div class="toolbar">
+      <button id="newAccess" class="btn primary">+ Nuevo acceso</button>
+    </div>
+
+    <div class="card">
+      <h3>Usuarios de administración y entrenamiento</h3>
+      <p class="section-note">Podés crear un acceso y habilitar uno o varios roles para la misma persona.</p>
+    </div>
+
+    <div class="table-wrap" style="margin-top:16px">
+      <table class="data-table">
+        <thead><tr><th>Nombre</th><th>DNI</th><th>Email</th><th>Roles</th><th>Equipos</th></tr></thead>
+        <tbody>
+          ${rows.map(r=>`<tr>
+            <td class="name-cell">${esc(r.first_name)} ${esc(r.last_name)}</td>
+            <td>${esc(r.dni)}</td>
+            <td>${esc(r.email||'-')}</td>
+            <td><div class="pill-row">${(r.roles||[r.role]).filter(Boolean).map(x=>`<span class="pill">${esc(x)}</span>`).join('')}</div></td>
+            <td>${esc(r.team_names||'-')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  $('#newAccess').onclick=()=>{
+    openModal('Nuevo acceso',`
+      <form id="newAccessForm" class="form-grid">
+        <label>Nombre<input name="first_name" required></label>
+        <label>Apellido<input name="last_name" required></label>
+        <label>DNI<input name="dni" required inputmode="numeric"></label>
+        <label>Email<input name="email" type="email" required></label>
+        <label class="span-2">Contraseña<input name="password" type="password" minlength="8" required></label>
+
+        <div class="span-2">
+          <div style="font-weight:900;margin-bottom:8px">Roles habilitados</div>
+          <label class="check-row"><input type="checkbox" name="roles" value="tutor"> Adulto responsable</label>
+          <label class="check-row"><input type="checkbox" name="roles" value="entrenador"> Entrenador</label>
+          <label class="check-row"><input type="checkbox" name="roles" value="administrativo"> Administrativo</label>
+        </div>
+
+        <label class="span-2">Equipos para el rol Entrenador
+          <select name="teams" multiple size="${Math.min(6,Math.max(3,catalogs.teams.length))}">
+            ${catalogs.teams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}
+          </select>
+        </label>
+
+        <div class="form-actions span-2">
+          <button type="button" id="cancelModal" class="btn light">Cancelar</button>
+          <button type="submit" class="btn primary">Crear acceso</button>
+        </div>
+      </form>
+    `);
+
+    $('#cancelModal').onclick=closeModal;
+
+    $('#newAccessForm').onsubmit=async e=>{
+      e.preventDefault();
+      const form=e.currentTarget;
+      const fd=new FormData(form);
+      const roles=[...form.querySelectorAll('input[name="roles"]:checked')].map(x=>x.value);
+      const teamIds=[...form.querySelector('select[name="teams"]').selectedOptions].map(x=>x.value);
+
+      if(!roles.length){
+        toast('Seleccioná al menos un rol.','error');
+        return;
+      }
+
+      const btn=form.querySelector('button[type="submit"]');
+      btn.disabled=true;
+      const old=btn.textContent;
+      btn.textContent='Creando...';
+
+      try{
+        const secondary=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{
+          auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}
+        });
+
+        const email=String(fd.get('email')||'').trim().toLowerCase();
+        const password=String(fd.get('password')||'');
+        const dni=String(fd.get('dni')||'').replace(/\D/g,'');
+        const firstName=String(fd.get('first_name')||'').trim();
+        const lastName=String(fd.get('last_name')||'').trim();
+
+        const signup=await secondary.auth.signUp({
+          email,
+          password,
+          options:{data:{first_name:firstName,last_name:lastName}}
+        });
+
+        if(signup.error) throw signup.error;
+        const userId=signup.data?.user?.id;
+        if(!userId) throw new Error('No pudimos crear el usuario de acceso.');
+
+        const profileResult=await supabase.rpc('admin_create_profile_for_auth_user',{
+          p_user_id:userId,
+          p_email:email,
+          p_dni:dni,
+          p_first_name:firstName,
+          p_last_name:lastName,
+          p_roles:roles
+        });
+        if(profileResult.error) throw profileResult.error;
+
+        if(roles.includes('entrenador') && teamIds.length){
+          const teamsResult=await supabase.rpc('admin_set_coach_teams_no_conflict',{
+            p_coach_id:userId,
+            p_team_ids:teamIds
+          });
+          if(teamsResult.error) throw teamsResult.error;
+        }
+
+        await secondary.auth.signOut().catch(()=>{});
+        closeModal();
+        toast('Acceso creado. Si el correo requiere confirmación, revisá la bandeja de entrada.');
+        await renderUsers();
+      }catch(ex){
+        console.error('CREATE ACCESS ERROR:',ex);
+        toast(ex?.message||'No pudimos crear el acceso.','error');
+        btn.disabled=false;
+        btn.textContent=old;
+      }
+    };
+  };
+}
 
 async function renderNews(){const {data,error}=await supabase.rpc('admin_get_news_current_month',{});if(error)throw error;content.innerHTML=`<div class="grid-2"><div class="card"><h3>Nueva novedad</h3><p class="card-sub">Se enviará también a la app según la configuración actual.</p><form id="newsForm" class="form-stack" style="margin-top:15px"><label>Mensaje<textarea name="message" rows="7" required></textarea></label><button class="btn primary">Publicar novedad</button></form></div><div class="card"><h3>Novedades del mes</h3><div style="margin-top:12px">${(data||[]).map(n=>`<div class="summary-box"><strong>${dateLabel(n.created_at)}</strong><p>${esc(n.message)}</p></div>`).join('')||'<div class="empty">Sin novedades este mes</div>'}</div></div></div>`;$('#newsForm').onsubmit=async e=>{e.preventDefault();const msg=e.target.message.value.trim();const {data,error}=await supabase.rpc('admin_send_news',{p_message:msg});if(error){toast(error.message,'error');return;}const newsId=data?.id||data?.[0]?.id;if(newsId){const n=await supabase.functions.invoke('send-news-notifications',{body:{news_id:newsId}});if(n.error)console.error('SEND NEWS NOTIFICATIONS ERROR:',n.error);}toast('Novedad publicada y avisos procesados');renderNews();};}
 
